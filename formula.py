@@ -628,7 +628,25 @@ def find_cover(g):
     return None
 
 
+def adopt_local_assets(lib):
+    """Rattache les images déjà présentes dans covers/ (par ex. reçues de l'autre appareil) aux jeux."""
+    files = {}
+    for p in COVERS.iterdir() if COVERS.exists() else []:
+        files.setdefault(p.stem, p.name)
+    changed = False
+    for gid, g in lib.games.items():
+        for kind in ("cover", "hero", "icon"):
+            name = files.get(f"{gid}_{kind}")
+            if name and not g.get(kind):
+                g[kind] = optimize_image(name, kind)
+                changed = True
+    if changed:
+        with lib.lock:
+            lib.save()
+
+
 def fetch_covers(lib):
+    adopt_local_assets(lib)
     for gid, g in list(lib.games.items()):
         # une jaquette introuvable est retentée à chaque démarrage (pas plus d'une fois par session)
         if g.get("cover") or g.get("cover_tried", 0) > STARTED:
@@ -1371,6 +1389,37 @@ class SyncHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if u.path == "/covers":
+            # jaquettes connues ici, par jeu (chemin relatif à roms/)
+            out = {}
+            for g in load_json(LIB_FILE, {}).values():
+                try:
+                    rel = Path(g["path"]).relative_to(ROMS).as_posix()
+                except (KeyError, ValueError):
+                    continue
+                assets = {k: g.get(k) for k in ("cover", "hero", "icon") if g.get(k)}
+                if assets:
+                    out[sync_key(rel)] = assets
+            body = json.dumps(out).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if u.path == "/cover":
+            name = Path(urllib.parse.parse_qs(u.query).get("name", [""])[0]).name   # nom de fichier seul
+            p = COVERS / name
+            if not name or not p.is_file():
+                self.send_response(404)
+                self.end_headers()
+                return
+            data = p.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if u.path == "/file":
             rel = urllib.parse.parse_qs(u.query).get("rel", [""])[0]
             p = (ROMS / rel).resolve()
@@ -1472,6 +1521,32 @@ class Syncer:
         self.publish(state="idle", current=None)
         return got
 
+    def sync_covers(self, peer):
+        """Récupère chez l'autre appareil les jaquettes déjà téléchargées et compressées, pour les jeux
+        présents ici qui n'en ont pas encore (évite de tout re-télécharger depuis Internet)."""
+        with self.peer_get(peer, "/covers", timeout=10) as r:
+            remote = json.loads(r.read())
+        COVERS.mkdir(parents=True, exist_ok=True)
+        have = {p.stem for p in COVERS.iterdir()}
+        got = 0
+        for key, assets in remote.items():
+            local = ROMS / (sync_key(key) if IS_WIN else key)
+            if not local.exists():
+                continue
+            gid = game_id(local)
+            for kind, name in assets.items():
+                if not name or f"{gid}_{kind}" in have:
+                    continue
+                try:
+                    with self.peer_get(peer, "/cover?name=" + urllib.parse.quote(name), timeout=20) as r:
+                        data = r.read()
+                    (COVERS / f"{gid}_{kind}{Path(name).suffix}").write_bytes(data)
+                    have.add(f"{gid}_{kind}")
+                    got += 1
+                except Exception:
+                    continue
+        return 1 if got else 0
+
     def run(self):
         DATA.mkdir(parents=True, exist_ok=True)
         if len(self.cfg.get("token") or "") < 16 or not self.cfg.get("peers"):
@@ -1488,6 +1563,8 @@ class Syncer:
                 for i, peer in enumerate(addrs):
                     try:
                         got += self.sync_peer(peer)
+                        if self.status["peers"].get(peer, {}).get("online"):
+                            got += self.sync_covers(peer)
                     except Exception as e:
                         print("synchro", peer, e, file=sys.stderr)
                     if self.status["peers"].get(peer, {}).get("online") or i == len(addrs) - 1:
