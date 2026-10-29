@@ -1,0 +1,4 @@
+# chemin propre à chaque machine
+formula-base.txt
+__pycache__/
+*.pyc

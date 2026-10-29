@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FORMULA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;700;800;900&display=swap">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div id="bg">
+  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+  <div id="bg-art"></div>
+  <div id="bg-fade"></div>
+</div>
+
+<aside id="rail">
+  <div class="logo">
+    <svg viewBox="0 0 40 40" class="mark" aria-hidden="true">
+      <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b6cff"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs>
+      <path d="M8 6h26l-4 7H16l-1.6 4H28l-4 7H11.6L8 34H1z" fill="url(#lg)"/>
+    </svg>
+    <span>FORMULA</span>
+  </div>
+  <nav id="nav"></nav>
+  <div class="rail-bottom">
+    <button class="nav-item small" data-action="rescan"><i>⟳</i><span>Actualiser</span></button>
+    <button class="nav-item small" data-action="quit"><i>⏻</i><span>Quitter</span></button>
+  </div>
+</aside>
+
+<main id="main">
+  <header id="top">
+    <div class="search"><i>⌕</i><input id="search" placeholder="Rechercher un jeu" autocomplete="off" spellcheck="false"></div>
+    <button id="sort" class="chip"></button>
+    <div class="spacer"></div>
+    <div id="status" class="chip ghost hidden"></div>
+    <div id="sync" class="chip ghost hidden"></div>
+    <div id="clock"></div>
+  </header>
+
+  <section id="hero">
+    <div id="hero-cover"></div>
+    <div id="hero-info">
+      <div id="hero-tags"></div>
+      <h1 id="hero-title">Bibliothèque</h1>
+      <div id="hero-meta"></div>
+      <div id="hero-actions">
+        <button id="play" class="btn primary"><span class="tri"></span>Jouer</button>
+        <button id="fav" class="btn ghost">☆ Favori</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="section-head"><h2 id="section-title">Tous les jeux</h2><span id="count"></span></div>
+  <section id="grid" tabindex="-1"></section>
+  <div id="empty" class="hidden">
+    <div class="empty-icon">◇</div>
+    <p>Aucun jeu ici pour l'instant.</p>
+    <small>Les jeux se rangent dans <code>~/Emulation/roms/&lt;console&gt;</code>, puis « Actualiser ».</small>
+  </div>
+</main>
+
+<footer id="hints">
+  <span><b class="pad a">A</b>Jouer</span>
+  <span><b class="pad y">Y</b>Favori</span>
+  <span><b class="pad x">X</b>Rechercher</span>
+  <span><b class="pad sh">LB</b><b class="pad sh">RB</b>Console</span>
+  <span><b class="pad sh">☰</b>Trier</span>
+  <span><b class="pad b">B</b>Retour</span>
+</footer>
+
+<div id="running" class="hidden">
+  <div class="run-card">
+    <div id="run-cover"></div>
+    <div>
+      <div class="run-label">En cours</div>
+      <div id="run-title"></div>
+      <div class="run-sub">Quitte le jeu depuis le menu de l'émulateur pour revenir ici.</div>
+    </div>
+  </div>
+</div>
+<div id="osk" class="hidden">
+  <div class="osk-panel">
+    <div class="osk-field"><i>⌕</i><span id="osk-text"></span><span class="caret"></span></div>
+    <div id="osk-keys"></div>
+    <div class="osk-hints">
+      <span><b class="pad a">A</b>Taper</span><span><b class="pad b">B</b>Effacer</span>
+      <span><b class="pad y">Y</b>Espace</span><span><b class="pad sh">☰</b>Valider</span><span><b class="pad x">X</b>Fermer</span>
+    </div>
+  </div>
+</div>
+<div id="toast" class="hidden"></div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,1225 @@
+#!/usr/bin/env python3
+"""FORMULA - lanceur d'émulateurs pour Steam Deck.
+
+Petit serveur local (stdlib uniquement) qui :
+  - scanne ~/Emulation/roms/<console> et lit les infos des jeux (titre, numéro de série),
+  - télécharge les jaquettes officielles en arrière-plan,
+  - sert l'interface web (dossier web/),
+  - lance le bon émulateur quand on clique sur un jeu.
+
+Pour ajouter un émulateur plus tard : ajouter une entrée dans SYSTEMS
+(ou dans ~/.config/formula/systems.json, même format).
+"""
+import hashlib
+import html
+import json
+import os
+import re
+import struct
+import subprocess
+import sys
+import threading
+import time
+import urllib.parse
+import urllib.request
+import zlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+HOME = Path.home()
+APP_DIR = Path(__file__).resolve().parent
+WEB_DIR = APP_DIR / "web"
+IS_WIN = os.name == "nt"
+if IS_WIN:
+    # Windows : le code (dépôt git) et les données lourdes sont séparés. Le dossier de données
+    # (émulateurs, roms, bios, formula-data, python) est donné par FORMULA_BASE ou formula-base.txt.
+    _base_file = APP_DIR / "formula-base.txt"
+    BASE = Path(os.environ.get("FORMULA_BASE")
+                or (_base_file.read_text(encoding="utf-8").strip() if _base_file.exists() else APP_DIR.parent))
+    ROMS = BASE / "roms"
+    DATA = BASE / "formula-data"
+    EMU = BASE / "emulators"
+else:
+    ROMS = HOME / "Emulation" / "roms"
+    DATA = HOME / ".local" / "share" / "formula"
+COVERS = DATA / "covers"
+LIB_FILE = DATA / "library.json"
+PORT = int(os.environ.get("FORMULA_PORT", "47800"))
+SYNC_PORT = int(os.environ.get("FORMULA_SYNC_PORT", "47810"))
+UA = {"User-Agent": "FORMULA/1.0 (Steam Deck launcher)"}
+STARTED = time.time()
+
+SYSTEMS = {
+    "ps2": {
+        "name": "PlayStation 2", "short": "PS2", "order": 2,
+        "exts": [".iso", ".chd", ".cso", ".bin", ".gz"],
+        "cmd": ["flatpak", "run", "--user", "--env=QT_QPA_PLATFORM=xcb", "net.pcsx2.PCSX2", "-batch", "-nogui", "-fullscreen", "--", "{path}"],
+        "libretro": "Sony - PlayStation 2",
+    },
+    "psp": {
+        "name": "PlayStation Portable", "short": "PSP", "order": 3,
+        "exts": [".iso", ".cso", ".pbp", ".chd"],
+        "cmd": ["flatpak", "run", "--user", "--env=SDL_VIDEO_DRIVER=x11", "org.ppsspp.PPSSPP", "--fullscreen", "{path}"],
+        "libretro": "Sony - PlayStation Portable",
+    },
+    "ps3": {
+        "name": "PlayStation 3", "short": "PS3", "order": 4,
+        "exts": [".iso"], "folders": True,
+        "cmd": ["flatpak", "run", "--user", "--env=QT_QPA_PLATFORM=xcb", "net.rpcs3.RPCS3", "--no-gui", "{path}"],
+        "libretro": "Sony - PlayStation 3",
+    },
+    "ps4": {
+        "name": "PlayStation 4", "short": "PS4", "order": 5,
+        "exts": [], "folders": True,
+        "cmd": [str(HOME / "Emulation/ps4/Shadps4-sdl.AppImage"), "-g", "{path}", "--fullscreen", "true"],
+        "cwd": str(HOME / "Emulation/ps4"),
+        "env": {"SDL_VIDEO_DRIVER": "x11"},
+    },
+    "nes": {
+        "name": "NES", "short": "NES", "order": 9,
+        "exts": [".nes", ".zip", ".7z", ".fds"],
+        # SDL_JOYSTICK_HIDAPI=0 : Nestopia ne voit que la manette virtuelle de Steam (port 0, disposition
+        # Xbox 360, priorité Steam Input respectée) et pas la manette physique du Deck.
+        "cmd": ["flatpak", "run", "--user", "--env=SDL_VIDEO_DRIVER=x11", "--env=GDK_BACKEND=x11",
+                "--env=SDL_JOYSTICK_HIDAPI=0", "ca._0ldsk00l.Nestopia", "-f", "{path}"],
+        "libretro": "Nintendo - Nintendo Entertainment System",
+    },
+    "n64": {
+        "name": "Nintendo 64", "short": "N64", "order": 9.5,
+        "exts": [".z64", ".n64", ".v64", ".zip", ".7z"],
+        "cmd": ["flatpak", "run", "--user", "com.github.Rosalie241.RMG",
+                "--fullscreen", "--nogui", "--quit-after-emulation", "{path}"],
+        "libretro": "Nintendo - Nintendo 64",
+    },
+    "gba": {
+        "name": "Game Boy Advance", "short": "GBA", "order": 10,
+        "exts": [".gba", ".gb", ".gbc", ".zip", ".7z"],
+        "cmd": ["flatpak", "run", "--user", "--env=QT_QPA_PLATFORM=xcb", "--env=SDL_JOYSTICK_HIDAPI=0", "io.mgba.mGBA", "-f", "{path}"],
+        "libretro": "Nintendo - Game Boy Advance",
+    },
+    "nds": {
+        "name": "Nintendo DS", "short": "DS", "order": 11,
+        "exts": [".nds", ".zip", ".7z"],
+        "cmd": ["flatpak", "run", "--user", "--env=QT_QPA_PLATFORM=xcb", "--env=SDL_JOYSTICK_HIDAPI=0", "net.kuribo64.melonDS", "-f", "{path}"],
+        "libretro": "Nintendo - Nintendo DS",
+    },
+    "gc": {
+        "name": "GameCube", "short": "GC", "order": 12,
+        "exts": [".iso", ".gcm", ".rvz", ".ciso", ".gcz"],
+        "cmd": ["flatpak", "run", "--user", "--env=QT_QPA_PLATFORM=xcb", "org.DolphinEmu.dolphin-emu", "-b", "-e", "{path}"],
+        "libretro": "Nintendo - GameCube", "gametdb": True,
+    },
+    "wii": {
+        "name": "Wii", "short": "Wii", "order": 13,
+        "exts": [".iso", ".wbfs", ".rvz", ".ciso", ".gcz"],
+        "cmd": ["flatpak", "run", "--user", "--env=QT_QPA_PLATFORM=xcb", "org.DolphinEmu.dolphin-emu", "-b", "-e", "{path}"],
+        "libretro": "Nintendo - Wii", "gametdb": True,
+    },
+}
+
+if IS_WIN:
+    # mêmes consoles, émulateurs Windows portables dans <BASE>/emulators
+    WIN_CMDS = {
+        "ps2": ("pcsx2/pcsx2-qt.exe", ["-batch", "-nogui", "-fullscreen", "--", "{path}"]),
+        "psp": ("ppsspp/PPSSPPWindows64.exe", ["--fullscreen", "{path}"]),
+        "ps3": ("rpcs3/rpcs3.exe", ["--no-gui", "{path}"]),
+        "ps4": ("shadps4/shadPS4.exe", ["-g", "{path}", "--fullscreen", "true"]),
+        "nes": ("nestopia/nestopia.exe", ["-f", "{path}"]),
+        "n64": ("rmg/RMG.exe", ["--fullscreen", "--nogui", "--quit-after-emulation", "{path}"]),
+        "gba": ("mgba/mGBA-0.10.5-win64/mGBA.exe", ["-f", "{path}"]),
+        "nds": ("melonds/melonDS.exe", ["-f", "{path}"]),
+        "gc": ("dolphin/Dolphin-x64/Dolphin.exe", ["-b", "-e", "{path}"]),
+        "wii": ("dolphin/Dolphin-x64/Dolphin.exe", ["-b", "-e", "{path}"]),
+    }
+    for _k, (_exe, _args) in WIN_CMDS.items():
+        SYSTEMS[_k]["cmd"] = [str(EMU / _exe)] + _args
+        SYSTEMS[_k]["cwd"] = str((EMU / _exe).parent)
+        SYSTEMS[_k].pop("env", None)
+
+_extra = (DATA if IS_WIN else HOME / ".config" / "formula") / "systems.json"
+if _extra.exists():
+    try:
+        SYSTEMS.update(json.loads(_extra.read_text()))
+    except Exception as e:  # un fichier mal formé ne doit pas empêcher le lancement
+        print("systems.json ignoré :", e, file=sys.stderr)
+
+
+# ---------------------------------------------------------------- lecture des disques
+
+class Disc:
+    """Accès en lecture à un ISO ou un CSO (ISO compressé PSP/PS2)."""
+
+    def __init__(self, path):
+        self.f = open(path, "rb")
+        self.cso = None
+        head = self.f.read(24)
+        if head[:4] == b"CISO":
+            _, hsz, total, bs, ver, align = struct.unpack("<4sIQIBB2x", head)
+            n = (total + bs - 1) // bs
+            self.f.seek(24)
+            idx = struct.unpack("<%dI" % (n + 1), self.f.read(4 * (n + 1)))
+            self.cso = (bs, align, idx)
+            self._cache = (-1, b"")
+
+    def _block(self, i):
+        if self._cache[0] == i:
+            return self._cache[1]
+        bs, align, idx = self.cso
+        plain = idx[i] & 0x80000000
+        a = (idx[i] & 0x7FFFFFFF) << align
+        b = (idx[i + 1] & 0x7FFFFFFF) << align
+        self.f.seek(a)
+        d = self.f.read(b - a)
+        d = d[:bs] if plain else zlib.decompress(d, -15)
+        self._cache = (i, d)
+        return d
+
+    def read(self, off, size):
+        if not self.cso:
+            self.f.seek(off)
+            return self.f.read(size)
+        bs = self.cso[0]
+        out = bytearray()
+        while size > 0:
+            blk = self._block(off // bs)
+            part = blk[off % bs: off % bs + size]
+            if not part:
+                break
+            out += part
+            off += len(part)
+            size -= len(part)
+        return bytes(out)
+
+    def close(self):
+        self.f.close()
+
+    # ISO9660 --------------------------------------------------------------
+    def _dir(self, lba, size):
+        data = self.read(lba * 2048, size)
+        p, out = 0, {}
+        while p < len(data):
+            ln = data[p]
+            if ln == 0:
+                p = (p // 2048 + 1) * 2048
+                continue
+            r = data[p:p + ln]
+            name = r[33:33 + r[32]]
+            if name not in (b"\0", b"\1"):
+                nm = name.decode("latin1").split(";")[0].upper()
+                out[nm] = (struct.unpack("<I", r[2:6])[0], struct.unpack("<I", r[10:14])[0], bool(r[25] & 2))
+            p += ln
+        return out
+
+    def file(self, path, limit=8 * 1024 * 1024):
+        pvd = self.read(16 * 2048, 2048)
+        if pvd[1:6] != b"CD001":
+            return None
+        root = pvd[156:190]
+        lba, size = struct.unpack("<I", root[2:6])[0], struct.unpack("<I", root[10:14])[0]
+        parts = [p for p in path.upper().split("/") if p]
+        for i, part in enumerate(parts):
+            ent = self._dir(lba, size).get(part)
+            if not ent:
+                return None
+            lba, size, is_dir = ent
+            if i == len(parts) - 1:
+                return None if is_dir else self.read(lba * 2048, min(size, limit))
+        return None
+
+
+def parse_sfo(data):
+    if not data or data[:4] != b"\0PSF":
+        return {}
+    _, _, kt, dt, n = struct.unpack("<4sIIII", data[:20])
+    out = {}
+    for i in range(n):
+        ko, fmt, ln, mx, do = struct.unpack("<HHIII", data[20 + i * 16: 36 + i * 16])
+        key = data[kt + ko: data.index(b"\0", kt + ko)].decode("latin1")
+        raw = data[dt + do: dt + do + ln]
+        if fmt == 0x0404:
+            out[key] = struct.unpack("<I", raw[:4])[0]
+        else:
+            out[key] = raw.split(b"\0")[0].decode("utf-8", "replace")
+    return out
+
+
+def read_pbp(path):
+    with open(path, "rb") as f:
+        h = f.read(40)
+        if h[:4] != b"\0PBP":
+            return {}, None, None
+        offs = list(struct.unpack("<8I", h[8:40]))
+        size = os.path.getsize(path)
+        offs.append(size)
+        def chunk(i):
+            f.seek(offs[i])
+            return f.read(max(0, offs[i + 1] - offs[i]))
+        return parse_sfo(chunk(0)), chunk(1) or None, chunk(4) or None
+
+
+def nintendo_disc_header(path):
+    """ID (ex. RMCP01) et titre d'un disque GameCube/Wii : ISO/GCM, WBFS ou RVZ."""
+    with open(path, "rb") as f:
+        head = f.read(0x400)
+    if head[:4] in (b"RVZ\x01", b"WIA\x01"):
+        dh = head[0x58:0x58 + 0x80]
+    elif head[:4] == b"WBFS":
+        dh = head[0x200:0x280]
+    elif head[:4] == b"CISO":
+        with open(path, "rb") as f:
+            f.seek(0x8000)
+            dh = f.read(0x80)
+    else:
+        dh = head[:0x80]
+    gid = dh[:6]
+    if not re.fullmatch(rb"[A-Z0-9]{6}", gid):
+        return None, None
+    title = dh[0x20:0x80].split(b"\0")[0].decode("latin1").strip()
+    return gid.decode(), title or None
+
+
+_gameindex = None
+
+
+def ps2_name(serial):
+    """Nom officiel depuis la base de PCSX2 (GameIndex.yaml)."""
+    global _gameindex
+    if _gameindex is None:
+        _gameindex = {}
+        base = EMU / "pcsx2" if IS_WIN else HOME / ".local/share/flatpak/app/net.pcsx2.PCSX2"
+        for gi in base.glob("**/resources/GameIndex.yaml"):
+            cur = None
+            for line in gi.read_text("utf-8", "replace").splitlines():
+                m = re.match(r"^([A-Z]{4}-\d{5}):", line)
+                if m:
+                    cur = m.group(1)
+                    _gameindex[cur] = {}
+                elif cur and line.startswith("  ") and not line.startswith("   "):
+                    m = re.match(r'^  (name|name-en|region):\s*"?(.*?)"?\s*$', line)
+                    if m:
+                        _gameindex[cur][m.group(1)] = m.group(2)
+            break
+    e = _gameindex.get(serial, {})
+    return e.get("name-en") or e.get("name"), e.get("region")
+
+
+def clean_name(stem):
+    s = re.sub(r"[\[(][^\])]*[\])]", "", stem)
+    s = re.sub(r"\s+", " ", s.replace("_", " ")).strip(" -.")
+    return s or stem
+
+
+# ---------------------------------------------------------------- scan
+
+def game_id(path):
+    return hashlib.sha1(str(path).encode()).hexdigest()[:12]
+
+
+def save_asset(gid, kind, data, ext=".png"):
+    if not data:
+        return None
+    COVERS.mkdir(parents=True, exist_ok=True)
+    p = COVERS / f"{gid}_{kind}{ext}"
+    p.write_bytes(data)
+    return optimize_image(p.name, kind)
+
+
+# Taille max à l'affichage (cartes ~150x210, fond flouté) avec de la marge pour la netteté.
+IMG_MAX = {"cover": "scale=-2:min(480\\,ih):flags=lanczos", "icon": "scale=-2:min(480\\,ih):flags=lanczos",
+           "hero": "scale=min(640\\,iw):-2:flags=lanczos"}
+
+
+def optimize_image(name, kind):
+    """Convertit une image en WebP redimensionné (une jaquette passe de ~1 Mo à ~50 Ko).
+    Renvoie le nouveau nom, ou l'ancien si ffmpeg n'est pas disponible ou échoue."""
+    if not name or name.endswith(".webp"):
+        return name
+    src = COVERS / name
+    dst = src.with_suffix(".webp")
+    try:
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
+                        "-vf", IMG_MAX.get(kind, IMG_MAX["cover"]), "-c:v", "libwebp",
+                        "-quality", "82", "-compression_level", "6", str(dst)],
+                       check=True, timeout=60, stdin=subprocess.DEVNULL)
+        if dst.stat().st_size == 0:
+            raise OSError("fichier vide")
+    except Exception as e:
+        print("compression impossible", name, e, file=sys.stderr)
+        dst.unlink(missing_ok=True)
+        return name
+    src.unlink(missing_ok=True)
+    return dst.name
+
+
+def optimize_library(lib):
+    """Compresse les images déjà téléchargées avant l'ajout de la compression."""
+    for g in list(lib.games.values()):
+        changed = False
+        for kind in ("cover", "icon", "hero"):
+            n = g.get(kind)
+            if n and not n.endswith(".webp") and (COVERS / n).exists():
+                g[kind] = optimize_image(n, kind)
+                changed = changed or g[kind] != n
+        if changed:
+            with lib.lock:
+                lib.save()
+
+
+def scan_file(sysid, path):
+    g = {"system": sysid, "path": str(path), "title": clean_name(path.stem), "serial": None, "region": None}
+    gid = g["id"] = game_id(path)
+    ext = path.suffix.lower()
+    try:
+        if sysid in ("gc", "wii"):
+            g["serial"], title = nintendo_disc_header(path)
+            g["title"] = title or g["title"]
+            g["launch"] = str(path)
+            return g
+        if sysid in ("gba", "nds") and ext in (".gba", ".nds"):
+            with open(path, "rb") as f:
+                h = f.read(0x200)
+            code = h[0xAC:0xB0] if sysid == "gba" else h[0x0C:0x10]
+            if re.fullmatch(rb"[A-Z0-9]{4}", code):
+                g["serial"] = code.decode()
+        if sysid == "psp" and ext == ".pbp":
+            sfo, icon, pic1 = read_pbp(path)
+            g["title"] = sfo.get("TITLE") or g["title"]
+            g["serial"] = sfo.get("DISC_ID")
+            g["icon"] = save_asset(gid, "icon", icon)
+            g["hero"] = save_asset(gid, "hero", pic1)
+        elif ext in (".iso", ".cso"):
+            d = Disc(path)
+            try:
+                if sysid == "ps2":
+                    cnf = d.file("SYSTEM.CNF", 4096) or b""
+                    m = re.search(rb"BOOT2?\s*=\s*cdrom0?:\\?([A-Z]{4})[_-](\d{3})\.(\d{2})", cnf)
+                    if m:
+                        g["serial"] = f"{m.group(1).decode()}-{m.group(2).decode()}{m.group(3).decode()}"
+                        name, region = ps2_name(g["serial"])
+                        g["title"] = name or g["title"]
+                        g["region"] = region
+                elif sysid == "psp":
+                    sfo = parse_sfo(d.file("PSP_GAME/PARAM.SFO"))
+                    g["title"] = sfo.get("TITLE") or g["title"]
+                    g["serial"] = sfo.get("DISC_ID")
+                    g["icon"] = save_asset(gid, "icon", d.file("PSP_GAME/ICON0.PNG"))
+                    g["hero"] = save_asset(gid, "hero", d.file("PSP_GAME/PIC1.PNG"))
+                elif sysid == "ps3":
+                    sfo = parse_sfo(d.file("PS3_GAME/PARAM.SFO"))
+                    g["title"] = sfo.get("TITLE") or g["title"]
+                    g["serial"] = sfo.get("TITLE_ID")
+                    g["icon"] = save_asset(gid, "icon", d.file("PS3_GAME/ICON0.PNG"))
+                    g["hero"] = save_asset(gid, "hero", d.file("PS3_GAME/PIC1.PNG"))
+            finally:
+                d.close()
+    except Exception as e:
+        print("lecture impossible", path, e, file=sys.stderr)
+    g["launch"] = str(path)
+    return g
+
+
+def scan_folder(sysid, path):
+    """Jeux PS3 (PS3_GAME/...) et PS4 (sce_sys/...) décompressés en dossier."""
+    gid = game_id(path)
+    g = {"system": sysid, "path": str(path), "id": gid, "title": clean_name(path.name), "serial": None, "region": None}
+    if sysid == "ps3":
+        base = path / "PS3_GAME" if (path / "PS3_GAME").is_dir() else path
+        sfo_p, eboot = base / "PARAM.SFO", base / "USRDIR" / "EBOOT.BIN"
+        if not sfo_p.exists():
+            return None
+        sfo = parse_sfo(sfo_p.read_bytes())
+        g["serial"] = sfo.get("TITLE_ID")
+        g["launch"] = str(eboot if eboot.exists() else path)
+        for kind, fn in (("icon", "ICON0.PNG"), ("hero", "PIC1.PNG")):
+            if (base / fn).exists():
+                g[kind] = save_asset(gid, kind, (base / fn).read_bytes())
+    elif sysid == "ps4":
+        sfo_p = path / "sce_sys" / "param.sfo"
+        eboot = path / "eboot.bin"
+        if not eboot.exists():
+            return None
+        sfo = parse_sfo(sfo_p.read_bytes()) if sfo_p.exists() else {}
+        g["serial"] = sfo.get("TITLE_ID") or (re.search(r"CUSA\d{5}", path.name) or [None])[0]
+        g["launch"] = str(eboot)
+        for kind, fn in (("icon", "icon0.png"), ("hero", "pic1.png"), ("hero", "pic0.png")):
+            if not g.get(kind) and (path / "sce_sys" / fn).exists():
+                g[kind] = save_asset(gid, kind, (path / "sce_sys" / fn).read_bytes())
+    else:
+        return None
+    g["title"] = sfo.get("TITLE") or g["title"]
+    return g
+
+
+class Library:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.games = {}
+        self.scanning = False
+        try:
+            self.games = json.loads(LIB_FILE.read_text())
+        except Exception:
+            pass
+
+    def save(self):
+        DATA.mkdir(parents=True, exist_ok=True)
+        tmp = LIB_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(self.games, ensure_ascii=False, indent=1))
+        tmp.replace(LIB_FILE)
+
+    def candidates(self):
+        for sysid, s in SYSTEMS.items():
+            root = ROMS / sysid
+            if not root.is_dir():
+                continue
+            exts = set(s.get("exts", []))
+            for p in sorted(root.iterdir()):
+                if p.name.startswith("."):
+                    continue
+                if p.is_file() and p.suffix.lower() in exts:
+                    yield sysid, p, "file"
+                elif p.is_dir():
+                    if re.search(r"-(UPDATE|patch)$", p.name, re.I) or p.name == "pkg":
+                        continue  # mises à jour PS4 (chargées par shadPS4 avec le jeu) et paquets à installer
+                    if s.get("folders"):
+                        yield sysid, p, "folder"
+                    else:  # un niveau de sous-dossier (ex. "Jeu [SLUS-xxxxx]/jeu.iso")
+                        for q in sorted(p.iterdir()):
+                            if q.is_file() and q.suffix.lower() in exts:
+                                yield sysid, q, "file"
+
+    def scan(self):
+        if self.scanning:
+            return
+        self.scanning = True
+        try:
+            seen = {}
+            for sysid, p, kind in self.candidates():
+                try:
+                    st = p.stat()
+                except OSError:
+                    continue
+                gid = game_id(p)
+                old = self.games.get(gid)
+                if old and old.get("mtime") == st.st_mtime and old.get("size") == st.st_size:
+                    seen[gid] = old
+                    continue
+                g = scan_file(sysid, p) if kind == "file" else scan_folder(sysid, p)
+                if not g:
+                    continue
+                g.update(mtime=st.st_mtime, size=st.st_size, added=old.get("added") if old else time.time())
+                if old:
+                    for k in ("cover", "cover_tried", "plays", "last_played", "fav"):
+                        if k in old:
+                            g.setdefault(k, old[k])
+                seen[gid] = g
+                with self.lock:
+                    self.games[gid] = g
+            with self.lock:
+                self.games = seen
+                self.save()
+            optimize_library(self)
+            fetch_covers(self)
+        finally:
+            self.scanning = False
+
+
+# ---------------------------------------------------------------- jaquettes
+
+def http_get(url, timeout=20):
+    req = urllib.request.Request(url, headers=UA)
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        if r.status != 200:
+            return None
+        return r.read()
+
+
+def norm(s):
+    s = re.sub(r"[\[(][^\])]*[\])]", "", s.lower()).replace("&", " and ")
+    s = re.sub(r"\bthe\b", "", s)
+    return re.sub(r"[^a-z0-9]", "", s)
+
+
+_lr_index = {}
+
+
+def libretro_index(system):
+    if system in _lr_index:
+        return _lr_index[system]
+    cache = DATA / f"libretro_{norm(system)}.json"
+    names = None
+    if cache.exists() and time.time() - cache.stat().st_mtime < 14 * 86400:
+        names = json.loads(cache.read_text())
+    else:
+        try:
+            raw = http_get(f"https://thumbnails.libretro.com/{urllib.parse.quote(system)}/Named_Boxarts/", 40)
+            hrefs = re.findall(r'href="([^"]+\.png)"', (raw or b"").decode("utf-8", "replace"))
+            names = sorted({html.unescape(urllib.parse.unquote(h))[:-4] for h in hrefs})
+            cache.write_text(json.dumps(names))
+        except Exception as e:
+            print("index libretro indisponible", system, e, file=sys.stderr)
+            names = []
+    idx = {}
+    for n in names:
+        idx.setdefault(norm(n), []).append(n)
+    _lr_index[system] = idx
+    return idx
+
+
+def libretro_cover(system, title, region_hint=None):
+    cands = libretro_index(system).get(norm(title))
+    if not cands:
+        return None
+    pref = ["France", "Europe", "World", "USA", "Japan"]
+    if region_hint == "NTSC-U":
+        pref = ["USA", "World", "Europe", "France", "Japan"]
+    cands.sort(key=lambda n: next((i for i, r in enumerate(pref) if f"({r}" in n or f", {r}" in n), 99))
+    url = f"https://thumbnails.libretro.com/{urllib.parse.quote(system)}/Named_Boxarts/{urllib.parse.quote(cands[0])}.png"
+    return http_get(url), ".png"
+
+
+def find_cover(g):
+    sysid, serial = g["system"], g.get("serial")
+    tries = []
+    if sysid == "ps2" and serial:
+        tries.append(lambda: (http_get(f"https://raw.githubusercontent.com/xlenore/ps2-covers/main/covers/default/{serial}.jpg"), ".jpg"))
+    if sysid == "ps3" and serial:
+        tries.append(lambda: (http_get(f"https://raw.githubusercontent.com/aldostools/Resources/main/COV/{serial}.JPG"), ".jpg"))
+    if SYSTEMS.get(sysid, {}).get("gametdb") and serial:
+        # GameTDB : jaquettes officielles par ID de disque, en français si elles existent
+        for reg in ("FR", "EN", "US", "JA"):
+            tries.append(lambda reg=reg: (http_get(f"https://art.gametdb.com/wii/cover/{reg}/{serial}.png"), ".png"))
+    lr = SYSTEMS.get(sysid, {}).get("libretro")
+    if lr:
+        tries.append(lambda: libretro_cover(lr, g["title"], g.get("region")))
+        # le titre interne est parfois tronqué (« ACE COMBAT X ») : on retente avec le nom du fichier
+        stem = clean_name(Path(g["path"]).stem)
+        if norm(stem) != norm(g["title"]):
+            tries.append(lambda: libretro_cover(lr, stem, g.get("region")))
+    for t in tries:
+        try:
+            res = t()
+            if res and res[0] and len(res[0]) > 2000:
+                return res
+        except Exception:
+            continue
+    return None
+
+
+def fetch_covers(lib):
+    for gid, g in list(lib.games.items()):
+        # une jaquette introuvable est retentée à chaque démarrage (pas plus d'une fois par session)
+        if g.get("cover") or g.get("cover_tried", 0) > STARTED:
+            continue
+        res = find_cover(g)
+        with lib.lock:
+            if res:
+                g["cover"] = save_asset(gid, "cover", res[0], res[1])
+            g["cover_tried"] = time.time()
+            lib.save()
+
+
+# ---------------------------------------------------------------- lancement
+
+class Runner:
+    def __init__(self):
+        self.proc = None
+        self.game = None
+
+    def running(self):
+        if self.proc and self.proc.poll() is None:
+            return self.game
+        self.proc = self.game = None
+        return None
+
+    def launch(self, lib, gid):
+        if self.running():
+            return False, "Un jeu est déjà lancé"
+        g = lib.games.get(gid)
+        if not g:
+            return False, "Jeu introuvable"
+        s = SYSTEMS[g["system"]]
+        cmd = [c.replace("{path}", g["launch"]) for c in s["cmd"]]
+        # Fenêtres X11 (XWayland) : en mode Bureau, Steam ne reconnaît pas une fenêtre Wayland native
+        # comme le jeu en cours et applique alors la config manette « Bureau » (souris/clavier).
+        env = dict(os.environ, **s.get("env", {}))
+        log = open(DATA / "last_launch.log", "w")
+        self.proc = subprocess.Popen(cmd, cwd=s.get("cwd") or str(HOME), env=env,
+                                     stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+        self.game = gid
+        with lib.lock:
+            g["plays"] = g.get("plays", 0) + 1
+            g["last_played"] = time.time()
+            lib.save()
+        return True, "ok"
+
+
+# ---------------------------------------------------------------- manette
+
+def win_browser_in_front():
+    """Windows : vrai si la fenêtre au premier plan est celle du navigateur de FORMULA (Edge)."""
+    import ctypes
+    from ctypes import wintypes
+    u32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
+    hwnd = u32.GetForegroundWindow()
+    pid = wintypes.DWORD()
+    u32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    h = k32.OpenProcess(0x1000, False, pid.value)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return True
+    try:
+        buf = ctypes.create_unicode_buffer(1024)
+        size = wintypes.DWORD(1024)
+        if not k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+            return True
+        return Path(buf.value).name.lower() == "msedge.exe"
+    finally:
+        k32.CloseHandle(h)
+
+
+# ---------------------------------------------------------------- manette
+
+class PadReader:
+    """Lit la manette virtuelle de Steam directement (evdev, côté hôte) et transmet
+    les appuis à l'interface. Le navigateur n'est pas fiable pour ça (sandbox flatpak,
+    focus sous gamescope).
+
+    Priorité des entrées :
+      - un jeu tourne        -> la manette est au jeu, FORMULA ignore tout ;
+      - menu Steam ouvert    -> Steam Input coupe la manette virtuelle, rien n'arrive ici ;
+      - sinon                -> FORMULA.
+    Au retour d'un jeu, les boutons encore enfoncés sont ignorés jusqu'à leur relâchement
+    (le « A » qui valide « Quitter » dans l'émulateur ne relance pas un jeu).
+    """
+    KEYS = {0x130: "a", 0x131: "b", 0x133: "x", 0x134: "y", 0x136: "lb", 0x137: "rb",
+            0x13A: "select", 0x13B: "start", 0x220: "up", 0x221: "down", 0x222: "left", 0x223: "right"}
+    EVT = struct.Struct("llHHi")
+
+    def __init__(self, runner):
+        self.runner = runner
+        self.fds = {}            # chemin -> fd
+        self.held = set()        # boutons logiques enfoncés (sources confondues)
+        self.src = {}            # (source, bouton) -> bool, pour combiner croix et stick
+        self.muted = set()       # enfoncés pendant le jeu : ignorés jusqu'au relâchement
+        self.was_running = False
+        self.resume_at = 0.0
+        self.clients = []
+        self.lock = threading.Lock()
+
+    def subscribe(self):
+        import queue
+        q = queue.Queue(maxsize=200)
+        with self.lock:
+            self.clients.append(q)
+        return q
+
+    def unsubscribe(self, q):
+        with self.lock:
+            if q in self.clients:
+                self.clients.remove(q)
+
+    def emit(self, msg):
+        with self.lock:
+            for q in self.clients:
+                try:
+                    q.put_nowait(msg)
+                except Exception:
+                    pass
+
+    def rescan(self):
+        try:
+            blocks = Path("/proc/bus/input/devices").read_text().split("\n\n")
+        except OSError:
+            return
+        want = set()
+        for b in blocks:
+            h = re.search(r"^H: Handlers=(.*)$", b, re.M)
+            if h and re.search(r"\bjs\d+", h.group(1)):
+                ev = re.search(r"\bevent\d+", h.group(1))
+                if ev:
+                    want.add("/dev/input/" + ev.group(0))
+        for p in list(self.fds):
+            if p not in want:
+                os.close(self.fds.pop(p))
+        for p in want - set(self.fds):
+            try:
+                self.fds[p] = os.open(p, os.O_RDONLY | os.O_NONBLOCK)
+            except OSError:
+                pass
+
+    def set_src(self, source, name, on):
+        self.src[(source, name)] = on
+        new = any(v for (s, n), v in self.src.items() if n == name)
+        old = name in self.held
+        if new == old:
+            return
+        if new:
+            self.held.add(name)
+        else:
+            self.held.discard(name)
+            if name in self.muted:
+                self.muted.discard(name)
+                return
+        running = self.runner.running()
+        if running or time.time() < self.resume_at:
+            if new:
+                self.muted.add(name)
+            return
+        if name in self.muted:
+            return
+        if IS_WIN and new and not win_browser_in_front():
+            return  # une autre fenêtre est au premier plan : elle garde la manette
+        self.emit({"b": name, "v": 1 if new else 0})
+
+    def handle(self, etype, code, value):
+        if etype == 1 and code in self.KEYS:
+            self.set_src("btn", self.KEYS[code], value != 0)
+        elif etype == 3 and code in (0x10, 0x11):      # croix (hat)
+            neg, pos = ("left", "right") if code == 0x10 else ("up", "down")
+            self.set_src("hat", neg, value < 0)
+            self.set_src("hat", pos, value > 0)
+        elif etype == 3 and code in (0, 1):            # stick gauche, avec hystérésis
+            neg, pos = ("left", "right") if code == 0 else ("up", "down")
+            for name, on in ((neg, value < 0), (pos, value > 0)):
+                cur = self.src.get(("stick", name), False)
+                mag = abs(value)
+                self.set_src("stick", name, on and (mag > 9000 if cur else mag > 16000))
+
+    def check_resume(self):
+        running = bool(self.runner.running())
+        if self.was_running and not running:
+            self.resume_at = time.time() + 0.8
+            self.muted |= self.held
+            self.emit({"t": "resume"})
+        self.was_running = running
+
+    # Windows : XInput (manette virtuelle Steam ou manette Xbox), lu même sans le focus
+    XI_BUTTONS = {0x0001: "up", 0x0002: "down", 0x0004: "left", 0x0008: "right", 0x0010: "start",
+                  0x0020: "select", 0x0100: "lb", 0x0200: "rb", 0x1000: "a", 0x2000: "b", 0x4000: "x", 0x8000: "y"}
+
+    def loop_xinput(self):
+        import ctypes
+
+        class XState(ctypes.Structure):
+            _fields_ = [("packet", ctypes.c_uint32), ("buttons", ctypes.c_uint16), ("lt", ctypes.c_ubyte),
+                        ("rt", ctypes.c_ubyte), ("lx", ctypes.c_short), ("ly", ctypes.c_short),
+                        ("rx", ctypes.c_short), ("ry", ctypes.c_short)]
+        xi = None
+        for dll in ("xinput1_4", "xinput1_3", "xinput9_1_0"):
+            try:
+                xi = ctypes.windll.LoadLibrary(dll)
+                break
+            except OSError:
+                continue
+        if not xi:
+            print("XInput introuvable : manette désactivée dans FORMULA", file=sys.stderr)
+            return
+        st = XState()
+        self.fds = {"xinput": 0}   # signale à l'interface qu'une manette est lue côté serveur
+        while True:
+            self.check_resume()
+            buttons, lx, ly = 0, 0, 0
+            for user in range(4):
+                if xi.XInputGetState(user, ctypes.byref(st)) == 0:
+                    buttons |= st.buttons
+                    lx = lx if abs(lx) > abs(st.lx) else st.lx
+                    ly = ly if abs(ly) > abs(st.ly) else st.ly
+            for bit, name in self.XI_BUTTONS.items():
+                self.set_src("btn", name, bool(buttons & bit))
+            # stick gauche (axe Y XInput : positif = haut)
+            for name, val, sign in (("left", lx, -1), ("right", lx, 1), ("up", ly, 1), ("down", ly, -1)):
+                cur = self.src.get(("stick", name), False)
+                v = val * sign
+                self.set_src("stick", name, v > 9000 if cur else v > 16000)
+            time.sleep(0.016)
+
+    def loop(self):
+        if IS_WIN:
+            return self.loop_xinput()
+        import select
+        last_scan = 0
+        while True:
+            now = time.time()
+            running = bool(self.runner.running())
+            if self.was_running and not running:
+                self.resume_at = now + 0.8
+                self.muted |= self.held
+                self.emit({"t": "resume"})
+            self.was_running = running
+            if now - last_scan > 2:
+                self.rescan()
+                last_scan = now
+            if not self.fds:
+                time.sleep(0.5)
+                continue
+            try:
+                r, _, _ = select.select(list(self.fds.values()), [], [], 0.25)
+            except (OSError, ValueError):
+                self.rescan()
+                continue
+            for fd in r:
+                try:
+                    data = os.read(fd, self.EVT.size * 64)
+                except OSError:
+                    continue
+                for i in range(0, len(data) - self.EVT.size + 1, self.EVT.size):
+                    _, _, etype, code, value = self.EVT.unpack_from(data, i)
+                    self.handle(etype, code, value)
+
+
+# ---------------------------------------------------------------- serveur HTTP
+
+LIB = Library()
+RUN = Runner()
+PAD = PadReader(RUN)
+MIME = {".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "application/javascript",
+        ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml", ".json": "application/json",
+        ".woff2": "font/woff2"}
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def send(self, code, body, ctype="application/json", cache=False):
+        if isinstance(body, (dict, list)):
+            body = json.dumps(body, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "max-age=86400" if cache else "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def static(self, base, rel, cache=False):
+        p = (base / rel).resolve()
+        if base.resolve() not in p.parents or not p.is_file():
+            return self.send(404, {"error": "not found"})
+        self.send(200, p.read_bytes(), MIME.get(p.suffix.lower(), "application/octet-stream"), cache)
+
+    def do_GET(self):
+        path = urllib.parse.urlparse(self.path).path
+        if path == "/api/library":
+            with LIB.lock:
+                games = [{k: g.get(k) for k in ("id", "system", "title", "serial", "region", "cover", "icon",
+                                                "hero", "added", "plays", "last_played", "fav", "size")}
+                         for g in LIB.games.values()]
+            systems = [{"id": k, "name": v["name"], "short": v["short"], "order": v.get("order", 99)}
+                       for k, v in SYSTEMS.items()]
+            return self.send(200, {"games": games, "systems": systems, "scanning": LIB.scanning,
+                                   "running": RUN.running()})
+        if path == "/api/events":
+            return self.events()
+        if path == "/api/sync":
+            return self.send(200, sync_status_for_ui())
+        if path.startswith("/covers/"):
+            return self.static(COVERS, path[len("/covers/"):], cache=True)
+        rel = path.lstrip("/") or "index.html"
+        return self.static(WEB_DIR, rel)
+
+    def events(self):
+        """Flux SSE des appuis manette (voir PadReader)."""
+        import queue
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        q = PAD.subscribe()
+        try:
+            self.wfile.write(b"data: " + json.dumps({"t": "hello", "pads": len(PAD.fds)}).encode() + b"\n\n")
+            self.wfile.flush()
+            while True:
+                try:
+                    msg = q.get(timeout=10)
+                    self.wfile.write(b"data: " + json.dumps(msg).encode() + b"\n\n")
+                except queue.Empty:
+                    self.wfile.write(b": ping\n\n")
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
+        finally:
+            PAD.unsubscribe(q)
+
+    def do_POST(self):
+        path = urllib.parse.urlparse(self.path).path
+        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            body = json.loads(self.rfile.read(n) or b"{}")
+        except ValueError:
+            body = {}
+        if path == "/api/launch":
+            ok, msg = RUN.launch(LIB, body.get("id"))
+            return self.send(200 if ok else 409, {"ok": ok, "message": msg})
+        if path == "/api/rescan":
+            threading.Thread(target=LIB.scan, daemon=True).start()
+            return self.send(200, {"ok": True})
+        if path == "/api/fav":
+            with LIB.lock:
+                g = LIB.games.get(body.get("id"))
+                if g:
+                    g["fav"] = not g.get("fav")
+                    LIB.save()
+            return self.send(200, {"ok": bool(g), "fav": bool(g and g.get("fav"))})
+        if path == "/api/quit":
+            self.send(200, {"ok": True})
+            def bye():
+                time.sleep(0.3)
+                if BROWSER and BROWSER.poll() is None:
+                    BROWSER.terminate()
+                os._exit(0)
+            threading.Thread(target=bye, daemon=True).start()
+            return
+        self.send(404, {"error": "not found"})
+
+
+# ---------------------------------------------------------------- synchro entre appareils
+#
+# Chaque appareil fait tourner « formula.py --sync » en fond (service systemd sur le Deck,
+# démarrage de session sur Windows). Ce service :
+#   - publie la liste de ses jeux (roms/) et sert les fichiers aux autres appareils (jeton partagé),
+#   - télécharge régulièrement les jeux présents chez l'autre et absents ici,
+#   - garde en attente ce qui n'a pas pu être récupéré (appareil éteint) et réessaie plus tard.
+# Un jeu supprimé volontairement ici n'est pas re-téléchargé (liste des suppressions).
+
+SYNC_CFG = DATA / "sync.json"
+SYNC_STATUS = DATA / "sync_status.json"
+SYNC_KNOWN = DATA / "sync_known.json"
+WIN_BAD = re.compile(r'[<>:"\\|?*]')
+PART = ".formula-part"
+
+
+def sync_key(rel):
+    """Clé de comparaison commune aux deux systèmes (caractères interdits sous Windows remplacés)."""
+    return "/".join(WIN_BAD.sub("-", p).rstrip(" .") for p in rel.split("/"))
+
+
+def load_json(p, default):
+    try:
+        return json.loads(Path(p).read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+
+def save_json(p, data):
+    p = Path(p)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(p)
+
+
+def local_manifest(settle=120):
+    """Fichiers de roms/ (hors fichiers en cours d'écriture depuis moins de `settle` secondes)."""
+    out, now = {}, time.time()
+    for root, dirs, files in os.walk(ROMS):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for fn in files:
+            if fn.startswith(".") or fn.endswith(PART):
+                continue
+            p = Path(root) / fn
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            if now - st.st_mtime < settle:
+                continue
+            rel = p.relative_to(ROMS).as_posix()
+            out[sync_key(rel)] = {"rel": rel, "size": st.st_size, "mtime": int(st.st_mtime)}
+    return out
+
+
+def update_known(manifest):
+    """Mémorise les jeux vus ici ; ceux qui disparaissent passent dans les suppressions."""
+    k = load_json(SYNC_KNOWN, {"known": [], "deleted": []})
+    known, deleted, cur = set(k["known"]), set(k["deleted"]), set(manifest)
+    deleted = (deleted | (known - cur)) - cur
+    save_json(SYNC_KNOWN, {"known": sorted(known | cur), "deleted": sorted(deleted)})
+    return deleted
+
+
+def sync_status_for_ui():
+    st = load_json(SYNC_STATUS, {})
+    if st and time.time() - st.get("updated", 0) > 900:
+        st["state"] = "stopped"   # service de synchro arrêté
+    return st
+
+
+class SyncHandler(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def do_GET(self):
+        cfg = load_json(SYNC_CFG, {})
+        if self.headers.get("X-Formula-Token") != cfg.get("token"):
+            self.send_response(403)
+            self.end_headers()
+            return
+        u = urllib.parse.urlparse(self.path)
+        if u.path == "/manifest":
+            body = json.dumps({"device": cfg.get("device"), "files": local_manifest(),
+                               "deleted": load_json(SYNC_KNOWN, {}).get("deleted", [])}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if u.path == "/file":
+            rel = urllib.parse.parse_qs(u.query).get("rel", [""])[0]
+            p = (ROMS / rel).resolve()
+            if ROMS.resolve() not in p.parents or not p.is_file():
+                self.send_response(404)
+                self.end_headers()
+                return
+            size = p.stat().st_size
+            start = 0
+            m = re.match(r"bytes=(\d+)-", self.headers.get("Range", ""))
+            if m:
+                start = min(int(m.group(1)), size)
+            self.send_response(206 if start else 200)
+            self.send_header("Content-Length", str(size - start))
+            self.send_header("Content-Type", "application/octet-stream")
+            self.end_headers()
+            try:
+                with open(p, "rb") as f:
+                    f.seek(start)
+                    while chunk := f.read(1 << 20):
+                        self.wfile.write(chunk)
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+            return
+        self.send_response(404)
+        self.end_headers()
+
+
+class Syncer:
+    def __init__(self):
+        self.cfg = load_json(SYNC_CFG, {})
+        self.status = {"state": "starting", "device": self.cfg.get("device"), "peers": {}}
+
+    def publish(self, **kw):
+        self.status.update(kw, updated=time.time())
+        save_json(SYNC_STATUS, self.status)
+
+    def peer_get(self, peer, path, timeout=5, headers=None):
+        h = {"X-Formula-Token": self.cfg.get("token", ""), **(headers or {})}
+        req = urllib.request.Request(f"http://{peer}{path}", headers=h)
+        return urllib.request.urlopen(req, timeout=timeout)
+
+    def download(self, peer, item, dest):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        part = dest.with_name(dest.name + PART)
+        have = part.stat().st_size if part.exists() else 0
+        hdr = {"Range": f"bytes={have}-"} if have else {}
+        with self.peer_get(peer, "/file?rel=" + urllib.parse.quote(item["rel"]), timeout=30, headers=hdr) as r:
+            if have and r.status != 206:
+                have = 0
+            with open(part, "ab" if have else "wb") as f:
+                done, last = have, 0
+                while chunk := r.read(1 << 20):
+                    f.write(chunk)
+                    done += len(chunk)
+                    if time.time() - last > 2:
+                        self.publish(current=item["rel"], current_done=done, current_size=item["size"])
+                        last = time.time()
+        if part.stat().st_size != item["size"]:
+            raise OSError("taille inattendue, nouvel essai plus tard")
+        os.utime(part, (item["mtime"], item["mtime"]))
+        part.replace(dest)
+
+    def sync_peer(self, peer):
+        cache = DATA / f"sync_peer_{re.sub(r'[^0-9A-Za-z]', '_', peer)}.json"
+        local = local_manifest(settle=0)
+        deleted = update_known(local)
+        try:
+            with self.peer_get(peer, "/manifest") as r:
+                remote = json.loads(r.read())
+            save_json(cache, remote)
+            online = True
+        except Exception:
+            remote = load_json(cache, {"files": {}})
+            online = False
+        todo = [v for k, v in remote.get("files", {}).items() if k not in local and k not in deleted]
+        name = remote.get("device") or peer
+        info = {"name": name, "online": online, "pending": len(todo),
+                "pending_bytes": sum(v["size"] for v in todo), "checked": time.time()}
+        self.status["peers"][peer] = info
+        self.publish(state="syncing" if (online and todo) else "idle")
+        if not online:
+            return 0
+        got = 0
+        for item in sorted(todo, key=lambda v: v["size"]):
+            dest = ROMS / sync_key(item["rel"]) if IS_WIN else ROMS / item["rel"]
+            try:
+                self.publish(current=item["rel"], current_done=0, current_size=item["size"])
+                self.download(peer, item, dest)
+                got += 1
+                info["pending"] -= 1
+                info["pending_bytes"] -= item["size"]
+            except Exception as e:
+                info["online"] = False
+                info["error"] = str(e)
+                break
+        self.publish(state="idle", current=None)
+        return got
+
+    def run(self):
+        DATA.mkdir(parents=True, exist_ok=True)
+        srv = ThreadingHTTPServer(("0.0.0.0", SYNC_PORT), SyncHandler)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        while True:
+            self.cfg = load_json(SYNC_CFG, {})
+            got = 0
+            # un appareil = une liste d'adresses possibles (IP, nom réseau) essayées dans l'ordre
+            for addrs in self.cfg.get("peers", []):
+                addrs = [addrs] if isinstance(addrs, str) else addrs
+                for i, peer in enumerate(addrs):
+                    try:
+                        got += self.sync_peer(peer)
+                    except Exception as e:
+                        print("synchro", peer, e, file=sys.stderr)
+                    if self.status["peers"].get(peer, {}).get("online") or i == len(addrs) - 1:
+                        for other in addrs:  # n'affiche que l'adresse retenue
+                            if other != peer:
+                                self.status["peers"].pop(other, None)
+                        break
+            if got:  # prévient l'interface si elle est ouverte
+                try:
+                    urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{PORT}/api/rescan",
+                                                                  data=b"{}", method="POST"), timeout=3)
+                except Exception:
+                    pass
+            self.publish()
+            time.sleep(300 if not got else 5)
+
+
+BROWSER = None
+
+
+def open_window_windows():
+    """Windows : ouvre FORMULA dans Edge (mode appli, plein écran) et quitte quand la fenêtre se ferme."""
+    global BROWSER
+    edge = next((p for p in (r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                             r"C:\Program Files\Microsoft\Edge\Application\msedge.exe") if Path(p).exists()), "msedge")
+    BROWSER = subprocess.Popen([edge, f"--app=http://127.0.0.1:{PORT}/", "--start-fullscreen",
+                                f"--user-data-dir={DATA / 'edge-profile'}", "--no-first-run",
+                                "--no-default-browser-check", "--disable-features=Translate"])
+    BROWSER.wait()
+    os._exit(0)
+
+
+def main():
+    DATA.mkdir(parents=True, exist_ok=True)
+    COVERS.mkdir(parents=True, exist_ok=True)
+    if "--sync" in sys.argv:
+        return Syncer().run()
+    threading.Thread(target=LIB.scan, daemon=True).start()
+    threading.Thread(target=PAD.loop, daemon=True).start()
+    srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    print(f"FORMULA sur http://127.0.0.1:{PORT}", flush=True)
+    if "--window" in sys.argv:
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        open_window_windows()
+    srv.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
