@@ -101,12 +101,14 @@ const coverUrl = (g) => (g.cover ? "/covers/" + g.cover : g.icon ? "/covers/" + 
 
 // ------------------------------------------------------------ données
 let firstLoad = true;
+let PLATFORM = "";
 async function load() {
   try {
     const r = await fetch("/api/library", { cache: "no-store" });
     const d = await r.json();
     if (firstLoad) {
       firstLoad = false;
+      PLATFORM = d.platform || "";
       $("#version").textContent = `v${d.version}${d.platform ? " · " + d.platform : ""}`;
       if (d.settings && d.settings.lang && d.settings.lang !== LANG) { LANG = d.settings.lang; applyI18n(); }
     }
@@ -539,6 +541,8 @@ function buildOsk() {
 }
 
 function openOsk() {
+  // PC : un vrai clavier est disponible, la recherche se tape directement dans le champ
+  if (PLATFORM === "Windows") { $("#search").focus(); return; }
   osk.open = true;
   $("#search").blur();
   $("#osk").classList.remove("hidden");
