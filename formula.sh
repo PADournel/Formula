@@ -18,7 +18,8 @@ flatpak run --user org.chromium.Chromium \
   --app="$URL" --kiosk --start-fullscreen \
   --user-data-dir="$HOME/.var/app/org.chromium.Chromium/formula-profile" \
   --no-first-run --no-default-browser-check --noerrdialogs \
-  --disable-features=Translate,MediaRouter --password-store=basic \
+  --disable-background-networking --disable-component-update --no-pings --disable-domain-reliability \
+  --disable-sync --disable-features=Translate,MediaRouter --password-store=basic \
   --ozone-platform=x11 --class=formula >"$LOGS/browser.log" 2>&1 &
 WEB=$!
 

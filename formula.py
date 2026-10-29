@@ -1347,8 +1347,17 @@ class SyncHandler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        import hmac
+        import ipaddress
         cfg = load_json(SYNC_CFG, {})
-        if self.headers.get("X-Formula-Token") != cfg.get("token"):
+        token = cfg.get("token") or ""
+        try:
+            ip = ipaddress.ip_address(self.client_address[0])
+            local = ip.is_private or ip.is_loopback
+        except ValueError:
+            local = False
+        # réseau local uniquement, et jeton partagé obligatoire (refus si aucun jeton n'est configuré)
+        if not local or len(token) < 16 or not hmac.compare_digest(self.headers.get("X-Formula-Token", ""), token):
             self.send_response(403)
             self.end_headers()
             return
@@ -1465,6 +1474,9 @@ class Syncer:
 
     def run(self):
         DATA.mkdir(parents=True, exist_ok=True)
+        if len(self.cfg.get("token") or "") < 16 or not self.cfg.get("peers"):
+            print("synchro non configurée (sync.json) : rien n'est ouvert sur le réseau", file=sys.stderr)
+            return
         srv = ThreadingHTTPServer(("0.0.0.0", SYNC_PORT), SyncHandler)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         while True:
@@ -1506,6 +1518,8 @@ def open_window_windows():
     BROWSER = subprocess.Popen([edge, "--inprivate", f"--app=http://127.0.0.1:{PORT}/", "--start-fullscreen",
                                 f"--user-data-dir={DATA / 'edge-profile'}", "--no-first-run",
                                 "--no-default-browser-check", "--disable-sync", "--disable-background-mode",
+                                "--disable-background-networking", "--disable-component-update", "--no-pings",
+                                "--disable-domain-reliability",
                                 "--disable-features=Translate,msImplicitSignin,msEdgeSyncConsent"])
     BROWSER.wait()
     os._exit(0)
