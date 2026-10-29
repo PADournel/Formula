@@ -134,7 +134,8 @@ SYSTEMS = {
         "name": "Xbox", "short": "Xbox", "order": 14,
         # images XISO (format attendu par xemu)
         "exts": [".iso", ".xiso"],
-        "cmd": ["flatpak", "run", "--user", "--env=SDL_VIDEO_DRIVER=x11", "--env=SDL_JOYSTICK_HIDAPI=0",
+        # xemu est en SDL2 : SDL_VIDEODRIVER (le flatpak le règle sur wayland,x11 par défaut)
+        "cmd": ["flatpak", "run", "--user", "--env=SDL_VIDEODRIVER=x11", "--env=SDL_JOYSTICK_HIDAPI=0",
                 "app.xemu.xemu", "-full-screen", "-dvd_path", "{path}"],
         "libretro": "Microsoft - Xbox",
     },
@@ -142,9 +143,12 @@ SYSTEMS = {
         "name": "Xbox 360", "short": "360", "order": 15,
         # disque (.iso), jeu extrait (dossier avec default.xex) ou archive .zar
         "exts": [".iso", ".xex", ".zar"],
-        "cmd": [str(HOME / "Emulation/x360/xenia_canary.AppImage"), "--fullscreen=true", "{path}"],
+        # l'AppImage ne peut pas utiliser portable.txt (son dossier est le point de montage) : réglages dans
+        # ~/Emulation/x360, contenu et sauvegardes dans kDrive
+        "cmd": [str(HOME / "Emulation/x360/xenia_canary.AppImage"), "--storage_root=" + str(HOME / "Emulation/x360"),
+                "--content_root=" + str(HOME / "kDrive/Saves/Xbox 360"), "--fullscreen=true", "{path}"],
         "cwd": str(HOME / "Emulation/x360"),
-        "env": {"SDL_VIDEO_DRIVER": "x11", "GDK_BACKEND": "x11", "SDL_JOYSTICK_HIDAPI": "0"},
+        "env": {"SDL_VIDEODRIVER": "x11", "GDK_BACKEND": "x11", "SDL_JOYSTICK_HIDAPI": "0"},
         "libretro": "Microsoft - Xbox 360",
     },
 }
