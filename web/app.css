@@ -149,6 +149,53 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .set-opt.on { border-color: rgba(139,108,255,.8); background: rgba(139,108,255,.16); }
 .set-opt.on .flag { background: var(--grad); color: #fff; }
 .set-opt.focus, .set-close.focus { outline: 2px solid #fff; outline-offset: 2px; }
+.set-panel { width: min(900px, 94vw); max-height: 92vh; display: flex; flex-direction: column; }
+.set-head { gap: 18px; }
+.set-head h2 { flex: none; }
+.set-body { overflow-y: auto; scrollbar-width: none; min-height: 0; }
+
+/* stockage, façon SteamOS */
+#storage { margin-left: auto; width: 360px; font-size: 12px; color: var(--muted); }
+.st-line { display: flex; justify-content: space-between; margin-bottom: 6px; }
+.st-line b { color: var(--text); font-weight: 600; }
+.st-bar { display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: #15171f; box-shadow: inset 0 0 0 1px rgba(255,255,255,.05); }
+.st-bar i { display: block; height: 100%; transition: width .6s ease; width: 0; }
+.st-formula { background: var(--grad); }
+.st-other { background: #9ea3b5; }
+.st-legend { display: flex; gap: 14px; margin-top: 6px; font-size: 11px; }
+.st-legend b { color: var(--text); font-weight: 600; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: 0; }
+.dot.formula { background: var(--grad); } .dot.other { background: #9ea3b5; } .dot.free { background: #15171f; box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); }
+
+/* tableau des émulateurs */
+.emu-table { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.emu-row { display: grid; grid-template-columns: 44px 1.3fr 1.1fr 1.1fr .8fr 92px; align-items: center; gap: 10px; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 13.5px; }
+.emu-row:first-child { border-top: 0; }
+.emu-headrow { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); background: rgba(255,255,255,.03); padding-top: 9px; padding-bottom: 9px; }
+.emu-row img { width: 32px; height: 32px; object-fit: contain; }
+.emu-row .emu-name { font-weight: 600; }
+.emu-row .emu-sys { color: var(--muted); font-size: 12px; }
+.emu-row .emu-ver, .emu-row .emu-size { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+.emu-row.off img { filter: grayscale(1); opacity: .45; }
+.emu-row.off .emu-name { color: var(--muted); }
+.emu-row.cur { background: rgba(139,108,255,.1); }
+.check { justify-self: center; width: 28px; height: 28px; border-radius: 8px; border: 2px solid rgba(255,255,255,.3); background: rgba(255,255,255,.04); color: #fff; font-size: 15px; font-weight: 800; display: grid; place-items: center; transition: background .15s, border-color .15s; }
+.check.on { background: var(--grad); border-color: transparent; }
+.check.focus { outline: 2px solid #fff; outline-offset: 3px; }
+.check.busy { border-color: var(--a2); border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; background: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.emu-row .emu-state { grid-column: 2 / -1; font-size: 11.5px; color: var(--a2); margin-top: -4px; }
+.emu-row .emu-state.err { color: #ff6b81; }
+
+/* confirmation */
+#confirm { position: fixed; inset: 0; z-index: 28; display: grid; place-items: center; background: rgba(4,5,8,.6); backdrop-filter: blur(6px); animation: fade .15s; }
+.confirm-panel { width: min(440px, 90vw); padding: 24px; border-radius: 18px; background: #161924; border: 1px solid rgba(255,107,129,.35); text-align: center; box-shadow: 0 30px 60px rgba(0,0,0,.7); }
+.confirm-icon { font-size: 30px; color: #ffb02e; }
+#confirm-text { font-size: 15.5px; line-height: 1.45; margin: 10px 0 20px; }
+.confirm-actions { display: flex; gap: 12px; justify-content: center; }
+.confirm-actions .btn { height: 44px; }
+.btn.danger { background: #e5484d; color: #fff; }
+.confirm-actions .btn.focus { outline: 2px solid #fff; outline-offset: 2px; }
 
 /* ---------- clavier à l'écran ---------- */
 #osk { position: fixed; inset: 0; z-index: 25; display: flex; align-items: flex-end; justify-content: center; background: rgba(4,5,8,.55); backdrop-filter: blur(6px); animation: fade .2s; padding-bottom: 28px; }

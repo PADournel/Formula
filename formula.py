@@ -140,15 +140,23 @@ if IS_WIN:
         "ps4": ("shadps4/shadPS4.exe", ["-g", "{path}", "--fullscreen", "true"]),
         "nes": ("nestopia/nestopia.exe", ["-f", "{path}"]),
         "n64": ("rmg/RMG.exe", ["--fullscreen", "--nogui", "--quit-after-emulation", "{path}"]),
-        "gba": ("mgba/mGBA-0.10.5-win64/mGBA.exe", ["-f", "{path}"]),
+        "gba": ("mgba/*/mGBA.exe", ["-f", "{path}"]),   # le sous-dossier porte le numéro de version
         "nds": ("melonds/melonDS.exe", ["-f", "{path}"]),
         "gc": ("dolphin/Dolphin-x64/Dolphin.exe", ["-b", "-e", "{path}"]),
         "wii": ("dolphin/Dolphin-x64/Dolphin.exe", ["-b", "-e", "{path}"]),
     }
     for _k, (_exe, _args) in WIN_CMDS.items():
-        SYSTEMS[_k]["cmd"] = [str(EMU / _exe)] + _args
-        SYSTEMS[_k]["cwd"] = str((EMU / _exe).parent)
+        SYSTEMS[_k]["cmd"] = [str(EMU / _exe)] + _args   # motif résolu au lancement (resolve_exe)
         SYSTEMS[_k].pop("env", None)
+
+
+def resolve_exe(path):
+    """Windows : remplace un motif (« mgba/*/mGBA.exe ») par le fichier réellement installé."""
+    p = Path(path)
+    if "*" not in path:
+        return p if p.exists() else None
+    found = sorted(EMU.glob(str(p.relative_to(EMU)).replace("\\", "/")))
+    return found[-1] if found else None
 
 _extra = (DATA if IS_WIN else HOME / ".config" / "formula") / "systems.json"
 if _extra.exists():
@@ -653,11 +661,19 @@ class Runner:
             return False, "Jeu introuvable"
         s = SYSTEMS[g["system"]]
         cmd = [c.replace("{path}", g["launch"]) for c in s["cmd"]]
+        cwd = s.get("cwd")
+        if IS_WIN:
+            exe = resolve_exe(cmd[0])
+            if not exe:
+                return False, "Émulateur non installé"
+            cmd[0], cwd = str(exe), str(exe.parent)
+        elif not EMUS.installed(EMUS.for_system(g["system"])):
+            return False, "Émulateur non installé"
         # Fenêtres X11 (XWayland) : en mode Bureau, Steam ne reconnaît pas une fenêtre Wayland native
         # comme le jeu en cours et applique alors la config manette « Bureau » (souris/clavier).
         env = dict(os.environ, **s.get("env", {}))
         log = open(DATA / "last_launch.log", "w")
-        self.proc = subprocess.Popen(cmd, cwd=s.get("cwd") or str(HOME), env=env,
+        self.proc = subprocess.Popen(cmd, cwd=cwd or str(HOME), env=env,
                                      stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
         self.game = gid
         with lib.lock:
@@ -880,6 +896,259 @@ class PadReader:
                     self.handle(etype, code, value)
 
 
+# ---------------------------------------------------------------- émulateurs (Paramètres)
+#
+# Liste des émulateurs gérés : installés ou non, version, taille, installation de la dernière
+# version et désinstallation. Deck : flatpaks utilisateur (+ AppImage pour shadPS4) ; les réglages
+# (~/.var/app) et les sauvegardes (kDrive) sont conservés à la désinstallation.
+# Windows : versions portables dans <BASE>/emulators ; les jonctions vers kDrive sont retirées
+# avant suppression pour ne jamais toucher aux sauvegardes.
+
+EMULATORS = [
+    {"id": "pcsx2", "name": "PCSX2", "systems": ["ps2"], "flatpak": "net.pcsx2.PCSX2",
+     "win": {"dir": "pcsx2", "exe": "pcsx2-qt.exe", "repo": "PCSX2/pcsx2", "asset": r"windows-x64-Qt\.7z$"}},
+    {"id": "ppsspp", "name": "PPSSPP", "systems": ["psp"], "flatpak": "org.ppsspp.PPSSPP",
+     "win": {"dir": "ppsspp", "exe": "PPSSPPWindows64.exe", "repo": "hrydgard/ppsspp", "asset": r"Windows-x64\.zip$"}},
+    {"id": "rpcs3", "name": "RPCS3", "systems": ["ps3"], "flatpak": "net.rpcs3.RPCS3",
+     "win": {"dir": "rpcs3", "exe": "rpcs3.exe", "repo": "RPCS3/rpcs3-binaries-win", "asset": r"win64.*\.7z$"}},
+    {"id": "shadps4", "name": "shadPS4", "systems": ["ps4"],
+     "appimage": {"repo": "shadps4-emu/shadPS4", "asset": r"linux-sdl.*\.zip$", "file": "Shadps4-sdl.AppImage"},
+     "win": {"dir": "shadps4", "exe": "shadPS4.exe", "repo": "shadps4-emu/shadPS4", "asset": r"win64-sdl.*\.zip$"}},
+    {"id": "nestopia", "name": "Nestopia", "systems": ["nes"], "flatpak": "ca._0ldsk00l.Nestopia",
+     "win": {"dir": "nestopia", "exe": "nestopia.exe", "repo": "0ldsk00l/nestopia", "asset": r"windows-x86_64\.zip$"}},
+    {"id": "rmg", "name": "RMG", "systems": ["n64"], "flatpak": "com.github.Rosalie241.RMG",
+     "win": {"dir": "rmg", "exe": "RMG.exe", "repo": "Rosalie241/RMG", "asset": r"Portable-Windows64.*\.zip$"}},
+    {"id": "mgba", "name": "mGBA", "systems": ["gba"], "flatpak": "io.mgba.mGBA",
+     "win": {"dir": "mgba", "exe": "*/mGBA.exe", "repo": "mgba-emu/mgba", "asset": r"win64\.7z$"}},
+    {"id": "melonds", "name": "melonDS", "systems": ["nds"], "flatpak": "net.kuribo64.melonDS",
+     "win": {"dir": "melonds", "exe": "melonDS.exe", "repo": "melonDS-emu/melonDS", "asset": r"windows-x86_64\.zip$"}},
+    # Dolphin ne publie pas ses binaires Windows sur GitHub : version fixée
+    {"id": "dolphin", "name": "Dolphin", "systems": ["gc", "wii"], "flatpak": "org.DolphinEmu.dolphin-emu",
+     "win": {"dir": "dolphin", "exe": "Dolphin-x64/Dolphin.exe", "version": "2609a",
+             "url": "https://dl.dolphin-emu.org/releases/2609a/dolphin-2609a-x64.7z"}},
+]
+FLATPAK_APPS = HOME / ".local/share/flatpak/app"
+PS4_DIR = HOME / "Emulation" / "ps4"
+
+
+def dir_size(path):
+    """Taille d'un dossier sans suivre les liens ni les jonctions (sauvegardes kDrive)."""
+    total, stack = 0, [Path(path)]
+    while stack:
+        try:
+            with os.scandir(stack.pop()) as it:
+                for e in it:
+                    try:
+                        if e.is_symlink() or (IS_WIN and os.path.isjunction(e.path)):
+                            continue
+                        if e.is_dir(follow_symlinks=False):
+                            stack.append(e.path)
+                        else:
+                            total += e.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+    return total
+
+
+class EmuManager:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.jobs = {}            # id -> {"state": "installing"|"uninstalling"|"error", "progress", "error"}
+        self.cache = {}           # résultats coûteux (tailles, versions flatpak, disque)
+        self.disk = None
+        self.disk_at = 0
+
+    def get(self, eid):
+        return next((e for e in EMULATORS if e["id"] == eid), None)
+
+    def for_system(self, sysid):
+        return next((e for e in EMULATORS if sysid in e["systems"]), None)
+
+    def root(self, e):
+        if IS_WIN:
+            return EMU / e["win"]["dir"]
+        return PS4_DIR if "appimage" in e else FLATPAK_APPS / e["flatpak"]
+
+    def installed(self, e):
+        if not e:
+            return True        # console sans émulateur géré ici
+        if IS_WIN:
+            return bool(list(self.root(e).glob(e["win"]["exe"])))
+        if "appimage" in e:
+            return (PS4_DIR / e["appimage"]["file"]).exists()
+        return (FLATPAK_APPS / e["flatpak"] / "current").exists()
+
+    def version(self, e):
+        vf = self.root(e) / ".formula-version"
+        if (IS_WIN or "appimage" in e) and vf.exists():
+            return vf.read_text(encoding="utf-8").strip()
+        if not IS_WIN and "flatpak" in e:
+            if "flatpak_versions" not in self.cache:
+                try:
+                    out = subprocess.run(["flatpak", "list", "--user", "--app", "--columns=application,version"],
+                                         capture_output=True, text=True, timeout=20).stdout
+                    self.cache["flatpak_versions"] = dict(l.split("\t", 1) for l in out.splitlines() if "\t" in l)
+                except Exception:
+                    self.cache["flatpak_versions"] = {}
+            return self.cache["flatpak_versions"].get(e["flatpak"], "").strip().lstrip("v") or "?"
+        return e.get("win", {}).get("version", "?")
+
+    def size(self, e):
+        key = "size_" + e["id"]
+        if key not in self.cache:
+            if not IS_WIN and "appimage" in e:
+                f = PS4_DIR / e["appimage"]["file"]
+                self.cache[key] = f.stat().st_size if f.exists() else 0
+            else:
+                self.cache[key] = dir_size(self.root(e))
+        return self.cache[key]
+
+    def listing(self):
+        out = []
+        for e in EMULATORS:
+            inst = self.installed(e)
+            job = self.jobs.get(e["id"], {})
+            out.append({"id": e["id"], "name": e["name"], "systems": e["systems"], "installed": inst,
+                        "version": self.version(e) if inst else None, "size": self.size(e) if inst else 0,
+                        "job": job.get("state"), "progress": job.get("progress"), "error": job.get("error")})
+        return out
+
+    # ---- disque (barre façon SteamOS)
+    def disk_usage(self):
+        """Renvoie le dernier calcul connu et relance le calcul en fond s'il date (il parcourt les jeux)."""
+        if (not self.disk or time.time() - self.disk_at > 120) and not self.cache.get("disk_busy"):
+            self.cache["disk_busy"] = True
+            def work():
+                try:
+                    self._disk_compute()
+                finally:
+                    self.cache.pop("disk_busy", None)
+            threading.Thread(target=work, daemon=True).start()
+        return self.disk
+
+    def _disk_compute(self):
+        import shutil
+        root = BASE if IS_WIN else HOME
+        du = shutil.disk_usage(root)
+        parts = [ROMS.parent if IS_WIN else HOME / "Emulation", DATA, APP_DIR]
+        if not IS_WIN:
+            parts += [FLATPAK_APPS / e["flatpak"] for e in EMULATORS if "flatpak" in e]
+            parts += [HOME / ".var/app" / e["flatpak"] for e in EMULATORS if "flatpak" in e]
+        saves = HOME / "kDrive" / "Saves"
+        if saves.exists() and Path(saves.anchor) == Path(Path(root).anchor):
+            parts += [saves / c for c in ("PS2", "PSP", "PS3", "PS4", "NES", "N64", "GBA", "DS", "GameCube", "Wii")]
+        seen, formula = set(), 0
+        for p in parts:
+            p = Path(p)
+            if p.exists() and str(p) not in seen:
+                seen.add(str(p))
+                formula += dir_size(p)
+        formula = min(formula, du.used)
+        self.disk = {"total": du.total, "free": du.free, "formula": formula, "other": du.used - formula,
+                     "path": str(root)}
+        self.disk_at = time.time()
+
+    # ---- installation / désinstallation (en arrière-plan)
+    def start(self, eid, action):
+        e = self.get(eid)
+        if not e or eid in self.jobs and self.jobs[eid].get("state") in ("installing", "uninstalling"):
+            return False
+        self.jobs[eid] = {"state": "installing" if action == "install" else "uninstalling", "progress": None}
+        threading.Thread(target=self._run, args=(e, action), daemon=True).start()
+        return True
+
+    def _run(self, e, action):
+        try:
+            (self._install if action == "install" else self._uninstall)(e)
+            self.jobs.pop(e["id"], None)
+        except Exception as ex:
+            self.jobs[e["id"]] = {"state": "error", "error": str(ex)}
+        self.cache.clear()
+        self.disk = None
+
+    def _latest(self, repo, pattern):
+        data = json.loads(http_get(f"https://api.github.com/repos/{repo}/releases/latest", 30))
+        for a in data.get("assets", []):
+            if re.search(pattern, a["name"]):
+                return a["browser_download_url"], data.get("tag_name", "?").lstrip("v.")
+        raise OSError("aucune version téléchargeable trouvée")
+
+    def _download(self, e, url, dest):
+        req = urllib.request.Request(url, headers=UA)
+        with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as f:
+            total = int(r.headers.get("Content-Length") or 0)
+            done = 0
+            while chunk := r.read(1 << 20):
+                f.write(chunk)
+                done += len(chunk)
+                if total:
+                    self.jobs[e["id"]]["progress"] = int(90 * done / total)
+
+    def _install(self, e):
+        if IS_WIN:
+            w = e["win"]
+            url, ver = (w["url"], w["version"]) if "url" in w else self._latest(w["repo"], w["asset"])
+            dl = BASE / "_downloads"
+            dl.mkdir(exist_ok=True)
+            arc = dl / url.rsplit("/", 1)[-1]
+            self._download(e, url, arc)
+            target = self.root(e)
+            target.mkdir(parents=True, exist_ok=True)
+            subprocess.run([r"C:\Windows\System32\tar.exe", "-xf", str(arc), "-C", str(target)], check=True,
+                           creationflags=0x08000000)
+            arc.unlink(missing_ok=True)
+            (target / ".formula-version").write_text(ver, encoding="utf-8")
+            setup = APP_DIR / "tools" / "setup_windows.py"
+            fn = {"pcsx2": "pcsx2", "ppsspp": "ppsspp", "rpcs3": "rpcs3", "shadps4": "shadps4", "mgba": "mgba",
+                  "melonds": "melonds", "dolphin": "dolphin", "rmg": "rmg"}.get(e["id"])
+            if setup.exists() and fn:
+                import importlib.util
+                spec = importlib.util.spec_from_file_location("setup_windows", setup)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                getattr(mod, fn)()
+        elif "appimage" in e:
+            a = e["appimage"]
+            url, ver = self._latest(a["repo"], a["asset"])
+            PS4_DIR.mkdir(parents=True, exist_ok=True)
+            arc = PS4_DIR / "_download.zip"
+            self._download(e, url, arc)
+            import zipfile
+            with zipfile.ZipFile(arc) as z:
+                name = next(n for n in z.namelist() if n.endswith(".AppImage"))
+                with z.open(name) as src, open(PS4_DIR / a["file"], "wb") as dst:
+                    dst.write(src.read())
+            arc.unlink()
+            os.chmod(PS4_DIR / a["file"], 0o755)
+            (PS4_DIR / ".formula-version").write_text(ver, encoding="utf-8")
+        else:
+            subprocess.run(["flatpak", "install", "--user", "-y", "--noninteractive", "flathub", e["flatpak"]],
+                           check=True, capture_output=True, timeout=3600)
+
+    def _uninstall(self, e):
+        if IS_WIN:
+            import shutil
+            target = self.root(e)
+            for root, dirs, _ in os.walk(target):
+                for d in list(dirs):
+                    p = os.path.join(root, d)
+                    if os.path.isjunction(p) or os.path.islink(p):
+                        os.rmdir(p)          # retire le lien vers kDrive sans toucher aux sauvegardes
+                        dirs.remove(d)
+            shutil.rmtree(target)
+        elif "appimage" in e:
+            (PS4_DIR / e["appimage"]["file"]).unlink(missing_ok=True)
+            (PS4_DIR / ".formula-version").unlink(missing_ok=True)
+        else:
+            subprocess.run(["flatpak", "uninstall", "--user", "-y", "--noninteractive", e["flatpak"]],
+                           check=True, capture_output=True, timeout=600)
+
+
+EMUS = EmuManager()
+
+
 # ---------------------------------------------------------------- serveur HTTP
 
 LIB = Library()
@@ -926,6 +1195,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.events()
         if path == "/api/sync":
             return self.send(200, sync_status_for_ui())
+        if path == "/api/emulators":
+            return self.send(200, {"emulators": EMUS.listing(), "disk": EMUS.disk_usage()})
         if path.startswith("/covers/"):
             return self.static(COVERS, path[len("/covers/"):], cache=True)
         rel = path.lstrip("/") or "index.html"
@@ -967,6 +1238,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/rescan":
             threading.Thread(target=LIB.scan, daemon=True).start()
             return self.send(200, {"ok": True})
+        if path in ("/api/emulators/install", "/api/emulators/uninstall"):
+            if RUN.running():
+                return self.send(409, {"ok": False, "message": "game running"})
+            ok = EMUS.start(body.get("id"), path.rsplit("/", 1)[-1])
+            return self.send(200 if ok else 409, {"ok": ok})
         if path == "/api/settings":
             s = load_settings()
             if body.get("lang") in ("en", "fr"):
