@@ -102,22 +102,54 @@
   <div class="set-panel">
     <div class="set-head">
       <h2 data-i18n="settings"></h2>
+      <div id="storage">
+        <div class="st-line"><span data-i18n="storage"></span><b id="st-free"></b></div>
+        <div class="st-bar"><i class="st-formula"></i><i class="st-other"></i></div>
+        <div class="st-legend">
+          <span><em class="dot formula"></em>FORMULA <b id="st-formula"></b></span>
+          <span><em class="dot other"></em><span data-i18n="other"></span> <b id="st-other"></b></span>
+          <span><em class="dot free"></em><span data-i18n="free"></span></span>
+        </div>
+      </div>
       <button class="set-close" data-i18n-title="close">✕</button>
     </div>
-    <section class="set-section">
-      <h3 data-i18n="language"></h3>
-      <p data-i18n="languageHint"></p>
-      <div class="set-options" id="set-lang">
-        <button class="set-opt" data-lang="en"><span class="flag">EN</span>English</button>
-        <button class="set-opt" data-lang="fr"><span class="flag">FR</span>Français</button>
-      </div>
-    </section>
+    <div class="set-body">
+      <section class="set-section">
+        <h3 data-i18n="language"></h3>
+        <p data-i18n="languageHint"></p>
+        <div class="set-options" id="set-lang">
+          <button class="set-opt" data-lang="en"><span class="flag">EN</span>English</button>
+          <button class="set-opt" data-lang="fr"><span class="flag">FR</span>Français</button>
+        </div>
+      </section>
+      <section class="set-section">
+        <h3 data-i18n="emulators"></h3>
+        <p data-i18n="emulatorsHint"></p>
+        <div class="emu-table">
+          <div class="emu-row emu-headrow">
+            <span></span><span data-i18n="emulator"></span><span data-i18n="consoles"></span>
+            <span data-i18n="version"></span><span data-i18n="size"></span><span data-i18n="installed"></span>
+          </div>
+          <div id="emu-list"></div>
+        </div>
+      </section>
+    </div>
     <div class="osk-hints">
       <span><b class="pad a">A</b><span data-i18n="choose"></span></span><span><b class="pad b">B</b><span data-i18n="close"></span></span>
     </div>
   </div>
 </div>
 
+<div id="confirm" class="hidden">
+  <div class="confirm-panel">
+    <div class="confirm-icon">⚠</div>
+    <p id="confirm-text"></p>
+    <div class="confirm-actions">
+      <button id="confirm-yes" class="btn danger"><b class="pad a">A</b><span data-i18n="yes"></span></button>
+      <button id="confirm-no" class="btn ghost"><b class="pad b">B</b><span data-i18n="no"></span></button>
+    </div>
+  </div>
+</div>
 <div id="toast" class="hidden"></div>
 <script src="app.js"></script>
 </body>

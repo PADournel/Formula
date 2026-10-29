@@ -8,6 +8,7 @@ Usage (avec n'importe quel Python 3.10+) :
     python tools\\install_windows.py G:\\Jeux\\FORMULA
 Relançable : ce qui est déjà installé est sauté. --update réinstalle les émulateurs (versions ci-dessous).
 """
+import re
 import subprocess
 import sys
 import urllib.request
@@ -31,7 +32,7 @@ EMULATORS = {
     "shadps4": ("https://github.com/shadps4-emu/shadPS4/releases/download/v.0.20.0/shadps4-win64-sdl-2026-0.20.0.zip",
                 "shadPS4.exe"),
     "mgba": ("https://github.com/mgba-emu/mgba/releases/download/0.10.5/mGBA-0.10.5-win64.7z",
-             "mGBA-0.10.5-win64/mGBA.exe"),
+             "*/mGBA.exe"),
     "melonds": ("https://github.com/melonDS-emu/melonDS/releases/download/1.1/melonDS-1.1-windows-x86_64.zip",
                 "melonDS.exe"),
     "rmg": ("https://github.com/Rosalie241/RMG/releases/download/v0.9.0/RMG-Portable-Windows64-v0.9.0.zip",
@@ -74,14 +75,17 @@ def main():
 
     for name, (url, exe) in EMULATORS.items():
         target = base / "emulators" / name
-        if (target / exe).exists() and not update:
+        if list(target.glob(exe)) and not update:
             print("déjà installé :", name)
             continue
         archive = dl / url.rsplit("/", 1)[-1]
         download(url, archive)
         extract(archive, target)
-        if not (target / exe).exists():
+        if not list(target.glob(exe)):
             print(f"ATTENTION : {exe} introuvable après extraction de {name}")
+        # version lue dans l'adresse de téléchargement (affichée dans Paramètres > Emulators)
+        m = re.search(r"(\d+\.\d+(?:\.\d+)*(?:-\d+)?|\d{4}[a-z]?)(?=[^/]*$)", url.rsplit("/", 1)[-1])
+        (target / ".formula-version").write_text(m.group(1) if m else "?", encoding="utf-8")
 
     subprocess.run([sys.executable, str(REPO / "tools" / "setup_windows.py")], check=True)
 

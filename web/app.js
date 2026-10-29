@@ -24,7 +24,13 @@ const I18N = {
     language: "Language", languageHint: "Language of the FORMULA interface.",
     syncStopped: "⇄ Sync stopped", syncCopy: (name, n, pct) => `⇄ Copying from ${name}: ${n} game${n === 1 ? "" : "s"} (${pct}%)`,
     syncOff: (name, n, size) => `⇄ ${name} offline: ${n} game${n === 1 ? "" : "s"} pending (${size})`,
-    syncOk: "⇄ Library up to date", gb: "GB", mb: "MB", locale: "en-GB", dec: ".",
+    syncOk: "⇄ Library up to date", gb: "GB", mb: "MB", kb: "KB", locale: "en-GB", dec: ".",
+    storage: "Storage", other: "Other", free: "Free", freeOf: (f, tot) => `${f} free of ${tot}`,
+    emulators: "Emulators", emulatorsHint: "Untick to uninstall (saves and settings are kept), tick to install the latest version.",
+    emulator: "Emulator", version: "Version", size: "Size", installed: "Installed", yes: "Yes", no: "No",
+    confirmUninstall: (n) => `Warning: you are about to uninstall the emulator ${n}.`,
+    installing: (p) => (p == null ? "Installing…" : `Downloading… ${p}%`), uninstalling: "Uninstalling…",
+    installError: (e) => `Failed: ${e}`, busyGame: "Close the game first",
   },
   fr: {
     refresh: "Actualiser", settings: "Paramètres", quit: "Quitter", search: "Rechercher un jeu", searchShort: "Rechercher",
@@ -43,7 +49,13 @@ const I18N = {
     language: "Langue", languageHint: "Langue de l'interface de FORMULA.",
     syncStopped: "⇄ Synchro arrêtée", syncCopy: (name, n, pct) => `⇄ Copie depuis ${name} : ${n} jeu${n > 1 ? "x" : ""} (${pct} %)`,
     syncOff: (name, n, size) => `⇄ ${name} éteint : ${n} jeu${n > 1 ? "x" : ""} en attente (${size})`,
-    syncOk: "⇄ Bibliothèque à jour", gb: "Go", mb: "Mo", locale: "fr-FR", dec: ",",
+    syncOk: "⇄ Bibliothèque à jour", gb: "Go", mb: "Mo", kb: "Ko", locale: "fr-FR", dec: ",",
+    storage: "Stockage", other: "Autres", free: "Libre", freeOf: (f, tot) => `${f} libres sur ${tot}`,
+    emulators: "Émulateurs", emulatorsHint: "Décocher pour désinstaller (sauvegardes et réglages conservés), cocher pour installer la dernière version.",
+    emulator: "Émulateur", version: "Version", size: "Taille", installed: "Installé", yes: "Oui", no: "Non",
+    confirmUninstall: (n) => `Attention, vous allez désinstaller l'émulateur ${n}.`,
+    installing: (p) => (p == null ? "Installation…" : `Téléchargement… ${p} %`), uninstalling: "Désinstallation…",
+    installError: (e) => `Échec : ${e}`, busyGame: "Ferme d'abord le jeu",
   },
 };
 let LANG = "en";
@@ -375,30 +387,132 @@ $("#sort").onclick = cycleSort;
 $("#search").addEventListener("input", (e) => { state.query = e.target.value; state.gi = 0; render(); });
 
 // ------------------------------------------------------------ paramètres
-const settings = { open: false, idx: 0 };
-const settingsItems = () => [...document.querySelectorAll("#settings .set-opt, #settings .set-close")];
+// navigation par lignes : ligne 0 = langues (gauche/droite), puis une ligne par émulateur (sa case à cocher)
+const settings = { open: false, row: 0, col: 0, emus: [], timer: null };
 function openSettings() {
   settings.open = true;
-  settings.idx = Math.max(0, settingsItems().findIndex((e) => e.dataset.lang === LANG));
+  settings.row = 0;
+  settings.col = LANG === "fr" ? 1 : 0;
   $("#settings").classList.remove("hidden");
+  loadEmus();
+  clearInterval(settings.timer);
+  settings.timer = setInterval(loadEmus, 1500);
   paintSettings();
 }
-function closeSettings() { settings.open = false; $("#settings").classList.add("hidden"); stopRepeats(); }
+function closeSettings() {
+  settings.open = false;
+  clearInterval(settings.timer);
+  $("#settings").classList.add("hidden");
+  stopRepeats();
+}
+function fmtBytes(b) {
+  if (b >= 1e9) return (b / 1e9).toFixed(b >= 1e11 ? 0 : 1).replace(".", t("dec")) + " " + t("gb");
+  if (b >= 1e6) return Math.round(b / 1e6) + " " + t("mb");
+  return Math.max(1, Math.round(b / 1e3)) + " " + t("kb");
+}
+async function loadEmus() {
+  try {
+    const d = await (await fetch("/api/emulators", { cache: "no-store" })).json();
+    settings.emus = d.emulators;
+    if (d.disk) {
+      const k = d.disk;
+      $("#st-free").textContent = t("freeOf", fmtBytes(k.free), fmtBytes(k.total));
+      $("#st-formula").textContent = fmtBytes(k.formula);
+      $("#st-other").textContent = fmtBytes(k.other);
+      $("#storage .st-formula").style.width = (100 * k.formula / k.total) + "%";
+      $("#storage .st-other").style.width = (100 * k.other / k.total) + "%";
+    }
+    renderEmus();
+  } catch (e) { /* serveur occupé */ }
+}
+function renderEmus() {
+  const box = $("#emu-list");
+  box.innerHTML = "";
+  settings.emus.forEach((e, i) => {
+    const row = document.createElement("div");
+    const busy = e.job === "installing" || e.job === "uninstalling";
+    row.className = "emu-row" + (e.installed ? "" : " off");
+    const sys = e.systems.map((s) => sysShort(s)).join(" · ");
+    row.innerHTML = `<img src="emulogos/${e.id}.webp" alt="">
+      <span class="emu-name">${esc(e.name)}</span><span class="emu-sys">${esc(sys)}</span>
+      <span class="emu-ver">${e.installed ? esc(e.version || "?") : "—"}</span>
+      <span class="emu-size">${e.installed ? fmtBytes(e.size) : "—"}</span>
+      <button class="check${e.installed ? " on" : ""}${busy ? " busy" : ""}">${e.installed && !busy ? "✓" : ""}</button>`;
+    if (busy || e.job === "error") {
+      const st = document.createElement("div");
+      st.className = "emu-state" + (e.job === "error" ? " err" : "");
+      st.textContent = e.job === "error" ? t("installError", e.error) : e.job === "installing" ? t("installing", e.progress) : t("uninstalling");
+      row.appendChild(st);
+    }
+    row.querySelector(".check").onclick = () => { settings.row = i + 1; paintSettings(); toggleEmu(e); };
+    box.appendChild(row);
+  });
+  paintSettings();
+}
+function toggleEmu(e) {
+  if (e.job === "installing" || e.job === "uninstalling") return;
+  if (state.running) return toast(t("busyGame"));
+  if (e.installed) {
+    openConfirm(t("confirmUninstall", e.name), () => emuAction(e, "uninstall"));
+  } else {
+    emuAction(e, "install");
+  }
+}
+async function emuAction(e, action) {
+  try { await fetch(`/api/emulators/${action}`, { method: "POST", body: JSON.stringify({ id: e.id }) }); } catch (err) {}
+  loadEmus();
+}
 function paintSettings() {
-  document.querySelectorAll("#set-lang .set-opt").forEach((b) => b.classList.toggle("on", b.dataset.lang === LANG));
-  settingsItems().forEach((e, i) => e.classList.toggle("focus", settings.open && i === settings.idx));
+  document.querySelectorAll("#set-lang .set-opt").forEach((b, i) => {
+    b.classList.toggle("on", b.dataset.lang === LANG);
+    b.classList.toggle("focus", settings.open && settings.row === 0 && settings.col === i);
+  });
+  document.querySelectorAll("#emu-list .emu-row").forEach((r, i) => {
+    const cur = settings.open && settings.row === i + 1;
+    r.classList.toggle("cur", cur);
+    r.querySelector(".check").classList.toggle("focus", cur);
+    if (cur && settings.scroll) r.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  });
+  settings.scroll = false;
 }
 function settingsHandle(name) {
-  const items = settingsItems();
-  if (name === "left" || name === "up") settings.idx = (settings.idx - 1 + items.length) % items.length;
-  else if (name === "right" || name === "down") settings.idx = (settings.idx + 1) % items.length;
-  else if (name === "a") items[settings.idx]?.click();
+  const rows = 1 + settings.emus.length;
+  if (name === "up") { settings.row = (settings.row - 1 + rows) % rows; settings.scroll = true; }
+  else if (name === "down") { settings.row = (settings.row + 1) % rows; settings.scroll = true; }
+  else if ((name === "left" || name === "right") && settings.row === 0) settings.col = name === "left" ? 0 : 1;
+  else if (name === "a") {
+    if (settings.row === 0) document.querySelectorAll("#set-lang .set-opt")[settings.col]?.click();
+    else toggleEmu(settings.emus[settings.row - 1]);
+  }
   else if (name === "b" || name === "select" || name === "start") return closeSettings();
   paintSettings();
 }
 document.querySelectorAll("#set-lang .set-opt").forEach((b) => { b.onclick = () => setLang(b.dataset.lang); });
 $("#settings .set-close").onclick = closeSettings;
 $("#settings").addEventListener("click", (e) => { if (e.target.id === "settings") closeSettings(); });
+
+// ------------------------------------------------------------ fenêtre de confirmation (Oui = A, Non = B)
+const confirmBox = { open: false, onYes: null, sel: 1 };
+function openConfirm(text, onYes) {
+  confirmBox.open = true;
+  confirmBox.onYes = onYes;
+  confirmBox.sel = 1;   // « Non » présélectionné à la souris/clavier
+  $("#confirm-text").textContent = text;
+  $("#confirm").classList.remove("hidden");
+}
+function closeConfirm(yes) {
+  confirmBox.open = false;
+  $("#confirm").classList.add("hidden");
+  stopRepeats();
+  if (yes && confirmBox.onYes) confirmBox.onYes();
+}
+function confirmHandle(name) {
+  if (name === "a") closeConfirm(true);
+  else if (name === "b" || name === "start" || name === "select") closeConfirm(false);
+}
+$("#confirm-yes").onclick = () => closeConfirm(true);
+$("#confirm-no").onclick = () => closeConfirm(false);
+$("#confirm").addEventListener("click", (e) => { if (e.target.id === "confirm") closeConfirm(false); });
 
 // ------------------------------------------------------------ clavier à l'écran (manette / tactile)
 const OSK_LAYOUTS = {
@@ -478,6 +592,7 @@ $("#search").addEventListener("pointerdown", (e) => { if (e.pointerType === "tou
 
 // une surcouche ouverte (clavier, paramètres) reçoit les commandes à la place de la bibliothèque
 function overlayHandler() {
+  if (confirmBox.open) return confirmHandle;
   if (osk.open) return oskHandle;
   if (settings.open) return settingsHandle;
   return null;
@@ -485,8 +600,8 @@ function overlayHandler() {
 
 // ------------------------------------------------------------ clavier
 document.addEventListener("keydown", (e) => {
-  if (osk.open || settings.open) {
-    const map = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "a", Escape: osk.open ? "x" : "b", Backspace: "b" };
+  if (osk.open || settings.open || confirmBox.open) {
+    const map = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "a", Escape: osk.open && !confirmBox.open ? "x" : "b", Backspace: "b" };
     if (map[e.key]) overlayHandler()(map[e.key]);
     else if (osk.open && e.key.length === 1) setQuery(state.query + e.key.toLowerCase());
     else return;

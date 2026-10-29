@@ -109,7 +109,7 @@ def shadps4():
 
 
 def mgba():
-    d = EMU / "mgba" / "mGBA-0.10.5-win64"
+    d = sorted((EMU / "mgba").glob("*/mGBA.exe"))[-1].parent   # sous-dossier nommé d'après la version
     (d / "portable.ini").touch()
     cfg = d / "config.ini"
     s = SAVES / "GBA"
