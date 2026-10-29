@@ -130,6 +130,23 @@ SYSTEMS = {
         "cmd": ["flatpak", "run", "--user", "--env=QT_QPA_PLATFORM=xcb", "org.DolphinEmu.dolphin-emu", "-b", "-e", "{path}"],
         "libretro": "Nintendo - Wii", "gametdb": True,
     },
+    "xbox": {
+        "name": "Xbox", "short": "Xbox", "order": 14,
+        # images XISO (format attendu par xemu)
+        "exts": [".iso", ".xiso"],
+        "cmd": ["flatpak", "run", "--user", "--env=SDL_VIDEO_DRIVER=x11", "--env=SDL_JOYSTICK_HIDAPI=0",
+                "app.xemu.xemu", "-full-screen", "-dvd_path", "{path}"],
+        "libretro": "Microsoft - Xbox",
+    },
+    "x360": {
+        "name": "Xbox 360", "short": "360", "order": 15,
+        # disque (.iso), jeu extrait (dossier avec default.xex) ou archive .zar
+        "exts": [".iso", ".xex", ".zar"],
+        "cmd": [str(HOME / "Emulation/x360/xenia_canary.AppImage"), "--fullscreen=true", "{path}"],
+        "cwd": str(HOME / "Emulation/x360"),
+        "env": {"SDL_VIDEO_DRIVER": "x11", "GDK_BACKEND": "x11", "SDL_JOYSTICK_HIDAPI": "0"},
+        "libretro": "Microsoft - Xbox 360",
+    },
 }
 
 if IS_WIN:
@@ -145,6 +162,8 @@ if IS_WIN:
         "nds": ("melonds/melonDS.exe", ["-f", "{path}"]),
         "gc": ("dolphin/Dolphin-x64/Dolphin.exe", ["-b", "-e", "{path}"]),
         "wii": ("dolphin/Dolphin-x64/Dolphin.exe", ["-b", "-e", "{path}"]),
+        "xbox": ("xemu/xemu.exe", ["-full-screen", "-dvd_path", "{path}"]),
+        "x360": ("xenia/xenia_canary.exe", ["--fullscreen=true", "{path}"]),
     }
     for _k, (_exe, _args) in WIN_CMDS.items():
         SYSTEMS[_k]["cmd"] = [str(EMU / _exe)] + _args   # motif résolu au lancement (resolve_exe)
@@ -390,6 +409,8 @@ def optimize_library(lib):
 
 def scan_file(sysid, path):
     g = {"system": sysid, "path": str(path), "title": clean_name(path.stem), "serial": None, "region": None}
+    if path.stem.lower() == "default":      # jeu Xbox 360 extrait : le nom est celui du dossier
+        g["title"] = clean_name(path.parent.name)
     gid = g["id"] = game_id(path)
     ext = path.suffix.lower()
     try:
@@ -946,9 +967,20 @@ EMULATORS = [
     {"id": "dolphin", "name": "Dolphin", "systems": ["gc", "wii"], "flatpak": "org.DolphinEmu.dolphin-emu",
      "win": {"dir": "dolphin", "exe": "Dolphin-x64/Dolphin.exe", "version": "2609a",
              "url": "https://dl.dolphin-emu.org/releases/2609a/dolphin-2609a-x64.7z"}},
+    {"id": "xemu", "name": "xemu", "systems": ["xbox"], "flatpak": "app.xemu.xemu",
+     "win": {"dir": "xemu", "exe": "xemu.exe", "repo": "xemu-project/xemu", "asset": r"^xemu-[\d.]+-windows-x86_64\.zip$"}},
+    # Xenia Canary : versions nommées par commit ; AppImage officielle sous Linux
+    {"id": "xenia", "name": "Xenia Canary", "systems": ["x360"],
+     "appimage": {"repo": "xenia-canary/xenia-canary", "asset": r"linux\.AppImage$", "file": "xenia_canary.AppImage",
+                  "dir": "x360"},
+     "win": {"dir": "xenia", "exe": "xenia_canary.exe", "repo": "xenia-canary/xenia-canary", "asset": r"windows\.7z$"}},
 ]
 FLATPAK_APPS = HOME / ".local/share/flatpak/app"
-PS4_DIR = HOME / "Emulation" / "ps4"
+
+
+def app_dir(e):
+    """Deck : dossier d'un émulateur distribué hors Flathub (AppImage), ~/Emulation/<dir>."""
+    return HOME / "Emulation" / e["appimage"].get("dir", "ps4")
 
 
 def dir_size(path):
@@ -989,7 +1021,7 @@ class EmuManager:
     def root(self, e):
         if IS_WIN:
             return EMU / e["win"]["dir"]
-        return PS4_DIR if "appimage" in e else FLATPAK_APPS / e["flatpak"]
+        return app_dir(e) if "appimage" in e else FLATPAK_APPS / e["flatpak"]
 
     def installed(self, e):
         if not e:
@@ -997,7 +1029,7 @@ class EmuManager:
         if IS_WIN:
             return bool(list(self.root(e).glob(e["win"]["exe"])))
         if "appimage" in e:
-            return (PS4_DIR / e["appimage"]["file"]).exists()
+            return (app_dir(e) / e["appimage"]["file"]).exists()
         return (FLATPAK_APPS / e["flatpak"] / "current").exists()
 
     def version(self, e):
@@ -1019,7 +1051,7 @@ class EmuManager:
         key = "size_" + e["id"]
         if key not in self.cache:
             if not IS_WIN and "appimage" in e:
-                f = PS4_DIR / e["appimage"]["file"]
+                f = app_dir(e) / e["appimage"]["file"]
                 self.cache[key] = f.stat().st_size if f.exists() else 0
             else:
                 self.cache[key] = dir_size(self.root(e))
@@ -1058,7 +1090,8 @@ class EmuManager:
             parts += [HOME / ".var/app" / e["flatpak"] for e in EMULATORS if "flatpak" in e]
         saves = HOME / "kDrive" / "Saves"
         if saves.exists() and Path(saves.anchor) == Path(Path(root).anchor):
-            parts += [saves / c for c in ("PS2", "PSP", "PS3", "PS4", "NES", "N64", "GBA", "DS", "GameCube", "Wii")]
+            parts += [saves / c for c in ("PS2", "PSP", "PS3", "PS4", "NES", "N64", "GBA", "DS", "GameCube", "Wii",
+                                         "Xbox", "Xbox 360")]
         seen, formula = set(), 0
         for p in parts:
             p = Path(p)
@@ -1122,7 +1155,7 @@ class EmuManager:
             (target / ".formula-version").write_text(ver, encoding="utf-8")
             setup = APP_DIR / "tools" / "setup_windows.py"
             fn = {"pcsx2": "pcsx2", "ppsspp": "ppsspp", "rpcs3": "rpcs3", "shadps4": "shadps4", "mgba": "mgba",
-                  "melonds": "melonds", "dolphin": "dolphin", "rmg": "rmg"}.get(e["id"])
+                  "melonds": "melonds", "dolphin": "dolphin", "rmg": "rmg", "xemu": "xemu", "xenia": "xenia"}.get(e["id"])
             if setup.exists() and fn:
                 import importlib.util
                 spec = importlib.util.spec_from_file_location("setup_windows", setup)
@@ -1132,17 +1165,21 @@ class EmuManager:
         elif "appimage" in e:
             a = e["appimage"]
             url, ver = self._latest(a["repo"], a["asset"])
-            PS4_DIR.mkdir(parents=True, exist_ok=True)
-            arc = PS4_DIR / "_download.zip"
-            self._download(e, url, arc)
-            import zipfile
-            with zipfile.ZipFile(arc) as z:
-                name = next(n for n in z.namelist() if n.endswith(".AppImage"))
-                with z.open(name) as src, open(PS4_DIR / a["file"], "wb") as dst:
-                    dst.write(src.read())
-            arc.unlink()
-            os.chmod(PS4_DIR / a["file"], 0o755)
-            (PS4_DIR / ".formula-version").write_text(ver, encoding="utf-8")
+            d = app_dir(e)
+            d.mkdir(parents=True, exist_ok=True)
+            if url.endswith(".AppImage"):          # AppImage publiée telle quelle (Xenia)
+                self._download(e, url, d / a["file"])
+            else:                                  # AppImage dans une archive zip (shadPS4)
+                arc = d / "_download.zip"
+                self._download(e, url, arc)
+                import zipfile
+                with zipfile.ZipFile(arc) as z:
+                    name = next(n for n in z.namelist() if n.endswith(".AppImage"))
+                    with z.open(name) as src, open(d / a["file"], "wb") as dst:
+                        dst.write(src.read())
+                arc.unlink()
+            os.chmod(d / a["file"], 0o755)
+            (d / ".formula-version").write_text(ver, encoding="utf-8")
         else:
             subprocess.run(["flatpak", "install", "--user", "-y", "--noninteractive", "flathub", e["flatpak"]],
                            check=True, capture_output=True, timeout=3600)
@@ -1159,8 +1196,8 @@ class EmuManager:
                         dirs.remove(d)
             shutil.rmtree(target)
         elif "appimage" in e:
-            (PS4_DIR / e["appimage"]["file"]).unlink(missing_ok=True)
-            (PS4_DIR / ".formula-version").unlink(missing_ok=True)
+            (app_dir(e) / e["appimage"]["file"]).unlink(missing_ok=True)
+            (app_dir(e) / ".formula-version").unlink(missing_ok=True)
         else:
             subprocess.run(["flatpak", "uninstall", "--user", "-y", "--noninteractive", e["flatpak"]],
                            check=True, capture_output=True, timeout=600)
