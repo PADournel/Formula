@@ -259,15 +259,10 @@ function updateHero() {
 
 // ------------------------------------------------------------ focus / navigation
 function applyFocus(scroll = true) {
-  document.querySelectorAll(".card.focus, .nav-item.focus").forEach((e) => e.classList.remove("focus", "edge-l", "edge-r", "edge-t"));
+  document.querySelectorAll(".card.focus, .nav-item.focus").forEach((e) => e.classList.remove("focus"));
   if (state.zone === "grid") {
     const c = $(`.card[data-i="${state.gi}"]`);
     if (c) {
-      // agrandie ×1,5 : sur les bords de la grille elle grandit vers l'intérieur pour rester visible
-      const cols = columns();
-      c.classList.toggle("edge-l", state.gi % cols === 0);
-      c.classList.toggle("edge-r", cols > 1 && state.gi % cols === cols - 1);
-      c.classList.toggle("edge-t", state.gi < cols);
       c.classList.add("focus");
       if (scroll) c.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
@@ -359,7 +354,7 @@ function setZoom(pct) {
   zoom.pct = pct;
   try { localStorage.setItem("formula.zoom", pct); } catch (e) {}
   paintZoom();
-  if (state.zone === "grid") applyFocus();   // les colonnes changent : bords et défilement à recalculer
+  if (state.zone === "grid") applyFocus();   // les colonnes changent : on garde le jeu sélectionné visible
 }
 const zoomStep = (d) => setZoom(zoom.pct + d * 10);
 $("#zoom-out").onclick = () => zoomStep(-1);

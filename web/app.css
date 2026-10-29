@@ -82,7 +82,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 /* ---------- hero ---------- */
 #hero { display: flex; gap: 26px; align-items: flex-end; padding: 26px 30px 18px 0; min-height: 250px; }
-#hero-cover { width: 150px; aspect-ratio: 3 / 4.2; border-radius: 12px; background: var(--panel-solid) center / cover no-repeat; box-shadow: 0 24px 50px -12px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.08); flex: none; transition: background-image .3s; }
+#hero-cover { width: 225px; aspect-ratio: 3 / 4.2; border-radius: 12px; background: var(--panel-solid) center / cover no-repeat; box-shadow: 0 24px 50px -12px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.08); flex: none; transition: background-image .3s; }
 #hero-info { min-width: 0; padding-bottom: 4px; }
 #hero-tags { display: flex; gap: 8px; margin-bottom: 10px; }
 .tag { font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 5px 10px; border-radius: 6px; background: rgba(255,255,255,.08); color: #d9dcec; }
@@ -115,12 +115,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .card .star { position: absolute; top: 7px; right: 8px; color: #ffd166; font-size: 14px; text-shadow: 0 1px 6px rgba(0,0,0,.8); }
 .card .shine { position: absolute; inset: 0; background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.16) 50%, transparent 65%); transform: translateX(-120%); }
 .card .name { font-size: 12.5px; font-weight: 500; color: var(--muted); margin-top: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .2s; }
-/* jaquette sélectionnée ×1,5 ; elle grandit vers l'intérieur de la grille sur les bords (classes posées par app.js) */
-.card { scroll-margin: calc(var(--card-w) * .45) 0; }
-.card.focus { transform: scale(1.5); z-index: 3; }
-.card.focus.edge-l { transform-origin: left center; } .card.focus.edge-r { transform-origin: right center; }
-.card.focus.edge-t { transform-origin: center top; }
-.card.focus.edge-l.edge-t { transform-origin: left top; } .card.focus.edge-r.edge-t { transform-origin: right top; }
+.card.focus { transform: translateY(-6px) scale(1.06); z-index: 2; }
 .card.focus .art { box-shadow: 0 22px 40px -12px rgba(0,0,0,.9), 0 0 0 3px #fff, 0 0 34px 2px color-mix(in srgb, var(--c) 60%, transparent); }
 .card.focus .shine { transform: translateX(120%); transition: transform .8s ease; }
 .card.focus .name { color: #fff; }

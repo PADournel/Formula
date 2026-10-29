@@ -82,7 +82,7 @@ Le dépôt ne contient que le code. Les données lourdes vivent ailleurs :
   redimensionnable (2/3 de l'écran, centrée) ; Paramètres → Affichage ou F11 passe en plein écran, et ce choix
   est gardé (`settings.json`). `formula.py --window` reste accepté et ouvre `FORMULA.exe`.
 - Taille des jaquettes : curseur −/+ en bas à droite, LT / RT à la manette ou `-` / `+` au clavier
-  (pas de 10 %, de 50 à 200 %). La jaquette sélectionnée est affichée à ×1,5.
+  (pas de 10 %, de 50 à 200 %).
 - Synchro : `formula.py --sync` (service systemd `formula-sync` sur le Deck, raccourci « FORMULA synchro » sous Windows).
   Réglages dans `sync.json` du dossier de données : nom de l'appareil, jeton partagé, adresses des autres appareils.
 
