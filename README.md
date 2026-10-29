@@ -33,9 +33,22 @@ Le dépôt ne contient que le code. Les données lourdes vivent ailleurs :
 - Synchro : `formula.py --sync` (service systemd `formula-sync` sur le Deck, raccourci « FORMULA synchro » sous Windows).
   Réglages dans `sync.json` du dossier de données : nom de l'appareil, jeton partagé, adresses des autres appareils.
 
+## Installer sous Windows
+
+```
+python tools\install_windows.py G:\Jeux\FORMULA
+```
+
+Télécharge Python (embarqué) et les émulateurs depuis leurs sites officiels (versions fixées dans le script),
+crée l'arborescence, configure les émulateurs et crée le raccourci du bureau. Relançable ; `--update`
+réinstalle les émulateurs. Le BIOS PS2 (`bios\ps2`) et le firmware PS3 (`bios\ps3`) ne sont pas fournis :
+ce sont des fichiers Sony à extraire de sa propre console. Ils ne doivent pas être ajoutés au dépôt, pas plus que les jeux.
+
 ## Outils
 
-- `tools/setup_windows.py` : configure les émulateurs Windows (mode portable, manettes, français, sauvegardes kDrive).
+- `tools/install_windows.py` : installation complète (voir ci-dessus).
+- `tools/setup_windows.py` : configure les émulateurs Windows (mode portable, manettes, français, sauvegardes kDrive),
+  à partir des modèles de `tools/templates`.
 - `tools/steam_shortcut.py` : ajoute FORMULA aux jeux non-Steam avec ses visuels.
 
 ## Ajouter une console

@@ -14,7 +14,7 @@ BASE = Path(os.environ.get("FORMULA_BASE") or (_REPO / "formula-base.txt").read_
 EMU = BASE / "emulators"
 ROMS = BASE / "roms"
 BIOS = BASE / "bios"
-REF = BASE / "_from_deck"                            # réglages copiés depuis le Deck
+REF = _REPO / "tools" / "templates"                  # réglages de référence (repris du Deck)
 SAVES = Path.home() / "kDrive" / "Saves"             # mêmes dossiers que sur le Deck
 
 
@@ -52,7 +52,7 @@ def ini_set(path, section, values, sep=" = "):
             flush()
             cur = m.group(1)
         elif cur == section:
-            k = re.split(r"\s*=\s*", l, 1)[0]
+            k = re.split(r"\s*=\s*", l, maxsplit=1)[0]
             if k in values:
                 l = f"{k}{sep}{values[k]}"
                 done.add(k)
