@@ -111,7 +111,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .card .ph { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 12px; background: radial-gradient(120% 80% at 20% 0%, color-mix(in srgb, var(--c) 45%, transparent), transparent 60%), linear-gradient(160deg, #1a1d2b, #0c0d14); }
 .card .ph b { font-family: Outfit, sans-serif; font-size: 15px; line-height: 1.15; font-weight: 700; }
 .card .ph small { margin-top: 6px; font-size: 10.5px; color: var(--muted); letter-spacing: .1em; }
-.card .badge { position: absolute; top: 8px; left: 8px; font-family: Outfit, sans-serif; font-weight: 800; font-size: 10px; letter-spacing: .05em; padding: 3px 6px; border-radius: 5px; background: rgba(6,7,11,.72); color: color-mix(in srgb, var(--c) 70%, #fff); backdrop-filter: blur(6px); }
+.card .badge { position: absolute; bottom: 8px; right: 8px; font-family: Outfit, sans-serif; font-weight: 800; font-size: 10px; letter-spacing: .05em; padding: 3px 6px; border-radius: 5px; background: rgba(6,7,11,.72); color: color-mix(in srgb, var(--c) 70%, #fff); backdrop-filter: blur(6px); }
 .card .star { position: absolute; top: 7px; right: 8px; color: #ffd166; font-size: 14px; text-shadow: 0 1px 6px rgba(0,0,0,.8); }
 .card .shine { position: absolute; inset: 0; background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.16) 50%, transparent 65%); transform: translateX(-120%); }
 .card .name { font-size: 12.5px; font-weight: 500; color: var(--muted); margin-top: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .2s; }
