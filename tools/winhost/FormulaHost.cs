@@ -2,7 +2,8 @@
 //
 // Remplace l'ancienne fenêtre Edge (--app). Le programme :
 //   - lance le serveur local (python\pythonw.exe <code>\formula.py --host <pid>), sans console ;
-//   - affiche http://127.0.0.1:<port>/ en plein écran dans un WebView2 ;
+//   - affiche http://127.0.0.1:<port>/ dans un WebView2, en fenêtre (2/3 de l'écran, redimensionnable)
+//     ou en plein écran (réglage Affichage de l'interface, ou F11) ;
 //   - refuse toute autre adresse, les nouvelles fenêtres, les téléchargements, les permissions
 //     (caméra, micro, notifications…), les outils de développement et les menus du navigateur ;
 //   - se ferme quand le serveur s'arrête (bouton Quitter), et arrête le serveur quand on le ferme ;
@@ -81,6 +82,7 @@ class Host : Form
     WebView2 web;
     System.Windows.Forms.Timer watch;
     bool closingFromServer;
+    Rectangle windowed;             // position et taille de la fenêtre hors plein écran
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
     static extern bool SetForegroundWindow(IntPtr h);
@@ -108,9 +110,11 @@ class Host : Form
 
         Text = Title;
         BackColor = Color.Black;
-        FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
-        Bounds = Screen.PrimaryScreen.Bounds;
+        MinimumSize = new Size(640, 420);
+        windowed = DefaultWindowBounds();
+        Bounds = windowed;
+        if (SavedFullscreen()) SetFullscreen(true);
         KeyPreview = true;
         try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
@@ -265,7 +269,8 @@ class Host : Form
         s.IsPasswordAutosaveEnabled = false;
         s.IsGeneralAutofillEnabled = false;
         s.AreHostObjectsAllowed = false;
-        s.IsWebMessageEnabled = false;
+        // un seul message accepté de la page : "fullscreen:1" ou "fullscreen:0" (réglage Affichage)
+        s.IsWebMessageEnabled = true;
         s.IsBuiltInErrorPageEnabled = true;
         s.IsReputationCheckingRequired = false;   // SmartScreen : rien n'est envoyé pour une page locale
 
@@ -288,29 +293,62 @@ class Host : Form
             a.Cancel = true;
         };
         c.DocumentTitleChanged += delegate { Text = Title; };
+        c.WebMessageReceived += delegate(object o, CoreWebView2WebMessageReceivedEventArgs a)
+        {
+            if (!a.Source.StartsWith(origin, StringComparison.OrdinalIgnoreCase)) return;
+            string m;
+            try { m = a.TryGetWebMessageAsString(); } catch { return; }
+            if (m == "fullscreen:1") SetFullscreen(true);
+            else if (m == "fullscreen:0") SetFullscreen(false);
+        };
+        // clavier directement à la page (F11, flèches…) dès l'ouverture et à chaque retour sur la fenêtre
+        c.NavigationCompleted += delegate { web.Focus(); };
+        Activated += delegate { web.Focus(); };
         c.Navigate(origin);
     }
 
-    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    // ------------------------------------------------------------ fenêtre / plein écran
+
+    // fenêtre par défaut : 2/3 de l'écran principal (hors barre des tâches), centrée
+    static Rectangle DefaultWindowBounds()
     {
-        // F11 : bascule plein écran / fenêtre
-        if (keyData == Keys.F11)
+        Rectangle wa = Screen.PrimaryScreen.WorkingArea;
+        int w = wa.Width * 2 / 3, h = wa.Height * 2 / 3;
+        return new Rectangle(wa.X + (wa.Width - w) / 2, wa.Y + (wa.Height - h) / 2, w, h);
+    }
+
+    // réglage enregistré par l'interface dans formula-data\settings.json ("fullscreen": true)
+    static bool SavedFullscreen()
+    {
+        try
         {
-            if (FormBorderStyle == FormBorderStyle.None)
+            string f = Path.Combine(Program.BaseDir, "formula-data", "settings.json");
+            return File.Exists(f) &&
+                System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(f), "\"fullscreen\"\\s*:\\s*true");
+        }
+        catch { return false; }
+    }
+
+    bool IsFullscreen { get { return FormBorderStyle == FormBorderStyle.None; } }
+
+    // demandé par la page (réglage Affichage ou F11, que la page reçoit) ; la page enregistre le réglage
+    void SetFullscreen(bool on)
+    {
+        if (on != IsFullscreen)
+        {
+            if (on)
             {
-                FormBorderStyle = FormBorderStyle.Sizable;
+                windowed = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
                 WindowState = FormWindowState.Normal;
-                Size = new Size(1280, 800);
-                CenterToScreen();
+                FormBorderStyle = FormBorderStyle.None;
+                Bounds = IsHandleCreated ? Screen.FromControl(this).Bounds : Screen.PrimaryScreen.Bounds;
             }
             else
             {
-                FormBorderStyle = FormBorderStyle.None;
+                FormBorderStyle = FormBorderStyle.Sizable;
                 WindowState = FormWindowState.Normal;
-                Bounds = Screen.FromControl(this).Bounds;
+                Bounds = windowed;
             }
-            return true;
         }
-        return base.ProcessCmdKey(ref msg, keyData);
     }
 }

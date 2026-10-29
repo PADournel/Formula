@@ -115,7 +115,12 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .card .star { position: absolute; top: 7px; right: 8px; color: #ffd166; font-size: 14px; text-shadow: 0 1px 6px rgba(0,0,0,.8); }
 .card .shine { position: absolute; inset: 0; background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,.16) 50%, transparent 65%); transform: translateX(-120%); }
 .card .name { font-size: 12.5px; font-weight: 500; color: var(--muted); margin-top: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .2s; }
-.card.focus { transform: translateY(-6px) scale(1.06); z-index: 2; }
+/* jaquette sélectionnée ×1,5 ; elle grandit vers l'intérieur de la grille sur les bords (classes posées par app.js) */
+.card { scroll-margin: calc(var(--card-w) * .45) 0; }
+.card.focus { transform: scale(1.5); z-index: 3; }
+.card.focus.edge-l { transform-origin: left center; } .card.focus.edge-r { transform-origin: right center; }
+.card.focus.edge-t { transform-origin: center top; }
+.card.focus.edge-l.edge-t { transform-origin: left top; } .card.focus.edge-r.edge-t { transform-origin: right top; }
 .card.focus .art { box-shadow: 0 22px 40px -12px rgba(0,0,0,.9), 0 0 0 3px #fff, 0 0 34px 2px color-mix(in srgb, var(--c) 60%, transparent); }
 .card.focus .shine { transform: translateX(120%); transition: transform .8s ease; }
 .card.focus .name { color: #fff; }
@@ -126,8 +131,15 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 #empty code { color: #b9a8ff; }
 
 /* ---------- pied ---------- */
-#hints { grid-column: 2; display: flex; gap: 22px; justify-content: flex-end; padding: 10px 30px 14px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); background: linear-gradient(0deg, rgba(6,7,11,.95), rgba(6,7,11,.6)); }
+#hints { grid-column: 2; display: flex; align-items: center; gap: 22px; justify-content: flex-end; padding: 10px 30px 14px; font-size: 12.5px; color: var(--muted); border-top: 1px solid var(--line); background: linear-gradient(0deg, rgba(6,7,11,.95), rgba(6,7,11,.6)); }
 #hints span { display: inline-flex; align-items: center; gap: 7px; }
+.hint-list { display: flex; flex-wrap: wrap; gap: 6px 22px; justify-content: flex-end; min-width: 0; }
+/* taille des jaquettes (en bas à droite) */
+#zoom { flex: none; display: flex; align-items: center; gap: 7px; padding-left: 22px; border-left: 1px solid var(--line); }
+.zoom-btn { width: 24px; height: 24px; border-radius: 7px; background: rgba(255,255,255,.06); border: 1px solid var(--line); color: var(--text); font-size: 15px; line-height: 1; display: grid; place-items: center; }
+.zoom-btn:hover { background: rgba(255,255,255,.12); }
+#zoom-range { width: 96px; accent-color: #8b6cff; cursor: pointer; }
+#zoom-val { min-width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
 .pad { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px; font-size: 11px; font-weight: 700; color: #0b0c12; background: #d7dae8; }
 .pad.a { background: #3ddc84; } .pad.b { background: #ff5c7a; } .pad.x { background: #4fa3ff; } .pad.y { background: #ffd166; }
 .pad.sh { border-radius: 6px; background: #3a3e52; color: #e6e8f2; }
@@ -159,6 +171,8 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .set-opt.on { border-color: rgba(139,108,255,.8); background: rgba(139,108,255,.16); }
 .set-opt.on .flag { background: var(--grad); color: #fff; }
 .set-opt.focus, .set-close.focus { outline: 2px solid #fff; outline-offset: 2px; }
+.set-options.small { max-width: 360px; }
+.set-options.small .set-opt { height: 38px; font-size: 13.5px; justify-content: center; }
 .set-panel { width: min(900px, 94vw); max-height: 92vh; display: flex; flex-direction: column; }
 .set-head { gap: 18px; }
 .set-head h2 { flex: none; }
@@ -230,4 +244,5 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   .logo span, .nav-item span, .nav-item .count, .nav-label { display: none; }
   #hero-cover { display: none; }
   .search { width: 200px; }
+  .hint-list { display: none; }
 }

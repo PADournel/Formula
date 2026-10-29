@@ -45,7 +45,9 @@ FORMULA ne fait rien en douce. Liste exhaustive de ce qu'il fait :
   Elle n'affiche que `http://127.0.0.1:47800/` : toute autre adresse, nouvelle fenêtre, téléchargement ou
   permission (caméra, micro, notifications…) est refusée, et les outils de développement, menus, zoom,
   remplissage automatique et SmartScreen sont désactivés. Lancée sans synchro de compte, sans tâches de fond
-  réseau et sans mises à jour de composants. Si WebView2 ne démarre pas, FORMULA demande (Oui/Non) avant
+  réseau et sans mises à jour de composants. La page ne peut envoyer à la fenêtre que deux messages,
+  `fullscreen:1` et `fullscreen:0` (réglage Affichage, F11) ; tout autre message est ignoré.
+  Si WebView2 ne démarre pas, FORMULA demande (Oui/Non) avant
   d'ouvrir Edge en mode application et navigation privée à la place.
 - Sur le Deck, la fenêtre est Chromium en mode application, avec les mêmes restrictions de lancement.
 
@@ -76,8 +78,11 @@ Le dépôt ne contient que le code. Les données lourdes vivent ailleurs :
 ## Lancer
 
 - Deck : `formula.sh` (raccourci Steam « FORMULA », qui donne la manette Steam Input aux émulateurs).
-- Windows : `<base>\FORMULA.exe` (raccourci du bureau et raccourci Steam « FORMULA »). F11 bascule entre
-  plein écran et fenêtre. `formula.py --window` reste accepté et ouvre `FORMULA.exe`.
+- Windows : `<base>\FORMULA.exe` (raccourci du bureau et raccourci Steam « FORMULA »). S'ouvre en fenêtre
+  redimensionnable (2/3 de l'écran, centrée) ; Paramètres → Affichage ou F11 passe en plein écran, et ce choix
+  est gardé (`settings.json`). `formula.py --window` reste accepté et ouvre `FORMULA.exe`.
+- Taille des jaquettes : curseur −/+ en bas à droite, LT / RT à la manette ou `-` / `+` au clavier
+  (pas de 10 %, de 50 à 200 %). La jaquette sélectionnée est affichée à ×1,5.
 - Synchro : `formula.py --sync` (service systemd `formula-sync` sur le Deck, raccourci « FORMULA synchro » sous Windows).
   Réglages dans `sync.json` du dossier de données : nom de l'appareil, jeton partagé, adresses des autres appareils.
 

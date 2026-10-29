@@ -65,13 +65,23 @@
 </main>
 
 <footer id="hints">
-  <span><b class="pad a">A</b><span data-i18n="play"></span></span>
-  <span><b class="pad y">Y</b><span data-i18n="favorite"></span></span>
-  <span><b class="pad x">X</b><span data-i18n="searchShort"></span></span>
-  <span><b class="pad sh">LB</b><b class="pad sh">RB</b><span data-i18n="console"></span></span>
-  <span><b class="pad sh">☰</b><span data-i18n="sort"></span></span>
-  <span><b class="pad sh">⧉</b><span data-i18n="settings"></span></span>
-  <span><b class="pad b">B</b><span data-i18n="back"></span></span>
+  <div class="hint-list">
+    <span><b class="pad a">A</b><span data-i18n="play"></span></span>
+    <span><b class="pad y">Y</b><span data-i18n="favorite"></span></span>
+    <span><b class="pad x">X</b><span data-i18n="searchShort"></span></span>
+    <span><b class="pad sh">LB</b><b class="pad sh">RB</b><span data-i18n="console"></span></span>
+    <span><b class="pad sh">☰</b><span data-i18n="sort"></span></span>
+    <span><b class="pad sh">⧉</b><span data-i18n="settings"></span></span>
+    <span><b class="pad b">B</b><span data-i18n="back"></span></span>
+  </div>
+  <div id="zoom" data-i18n-title="coverSize">
+    <b class="pad sh">LT</b>
+    <button id="zoom-out" class="zoom-btn" tabindex="-1">−</button>
+    <input id="zoom-range" type="range" min="50" max="200" step="10" value="100" tabindex="-1">
+    <button id="zoom-in" class="zoom-btn" tabindex="-1">+</button>
+    <b class="pad sh">RT</b>
+    <span id="zoom-val">100 %</span>
+  </div>
 </footer>
 
 <div id="running" class="hidden">
@@ -119,6 +129,14 @@
         <div class="set-options" id="set-lang">
           <button class="set-opt" data-lang="en"><span class="flag">EN</span>English</button>
           <button class="set-opt" data-lang="fr"><span class="flag">FR</span>Français</button>
+        </div>
+      </section>
+      <section class="set-section hidden" id="set-display-sec">
+        <h3 data-i18n="display"></h3>
+        <p data-i18n="displayHint"></p>
+        <div class="set-options small" id="set-display">
+          <button class="set-opt" data-fs="0" data-i18n="windowed"></button>
+          <button class="set-opt" data-fs="1" data-i18n="fullscreen"></button>
         </div>
       </section>
       <section class="set-section">

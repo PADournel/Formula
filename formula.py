@@ -867,14 +867,19 @@ class PadReader:
         self.fds = {"xinput": 0}   # signale à l'interface qu'une manette est lue côté serveur
         while True:
             self.check_resume()
-            buttons, lx, ly = 0, 0, 0
+            buttons, lx, ly, lt, rt = 0, 0, 0, 0, 0
             for user in range(4):
                 if xi.XInputGetState(user, ctypes.byref(st)) == 0:
                     buttons |= st.buttons
+                    lt, rt = max(lt, st.lt), max(rt, st.rt)
                     lx = lx if abs(lx) > abs(st.lx) else st.lx
                     ly = ly if abs(ly) > abs(st.ly) else st.ly
             for bit, name in self.XI_BUTTONS.items():
                 self.set_src("btn", name, bool(buttons & bit))
+            # gâchettes (taille des jaquettes), avec hystérésis
+            for name, val in (("lt", lt), ("rt", rt)):
+                cur = self.src.get(("btn", name), False)
+                self.set_src("btn", name, val > 60 if cur else val > 120)
             # stick gauche (axe Y XInput : positif = haut)
             for name, val, sign in (("left", lx, -1), ("right", lx, 1), ("up", ly, 1), ("down", ly, -1)):
                 cur = self.src.get(("stick", name), False)
@@ -1267,6 +1272,8 @@ class Handler(BaseHTTPRequestHandler):
             s = load_settings()
             if body.get("lang") in ("en", "fr"):
                 s["lang"] = body["lang"]
+            if isinstance(body.get("fullscreen"), bool):   # Windows : lu par FORMULA.exe au démarrage
+                s["fullscreen"] = body["fullscreen"]
             DATA.mkdir(parents=True, exist_ok=True)
             SETTINGS_FILE.write_text(json.dumps(s, ensure_ascii=False, indent=1), encoding="utf-8")
             return self.send(200, s)

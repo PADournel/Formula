@@ -31,6 +31,8 @@ const I18N = {
     confirmUninstall: (n) => `Warning: you are about to uninstall the emulator ${n}.`,
     installing: (p) => (p == null ? "Installing…" : `Downloading… ${p}%`), uninstalling: "Uninstalling…",
     installError: (e) => `Failed: ${e}`, busyGame: "Close the game first",
+    display: "Display", displayHint: "FORMULA window on this PC (F11 also switches).",
+    windowed: "Window", fullscreen: "Full screen", coverSize: "Cover size",
   },
   fr: {
     refresh: "Actualiser", settings: "Paramètres", quit: "Quitter", search: "Rechercher un jeu", searchShort: "Rechercher",
@@ -56,6 +58,8 @@ const I18N = {
     confirmUninstall: (n) => `Attention, vous allez désinstaller l'émulateur ${n}.`,
     installing: (p) => (p == null ? "Installation…" : `Téléchargement… ${p} %`), uninstalling: "Désinstallation…",
     installError: (e) => `Échec : ${e}`, busyGame: "Ferme d'abord le jeu",
+    display: "Affichage", displayHint: "Fenêtre de FORMULA sur ce PC (F11 bascule aussi).",
+    windowed: "Fenêtre", fullscreen: "Plein écran", coverSize: "Taille des jaquettes",
   },
 };
 let LANG = "en";
@@ -79,6 +83,7 @@ function applyI18n() {
   buildOsk();
   render();
   paintSettings();
+  paintZoom();
 }
 async function setLang(lang) {
   if (!I18N[lang]) return;
@@ -110,6 +115,9 @@ async function load() {
       firstLoad = false;
       PLATFORM = d.platform || "";
       $("#version").textContent = `v${d.version}${d.platform ? " · " + d.platform : ""}`;
+      display.fullscreen = !!(d.settings && d.settings.fullscreen);
+      $("#set-display-sec").classList.toggle("hidden", !hasHost());
+      paintSettings();
       if (d.settings && d.settings.lang && d.settings.lang !== LANG) { LANG = d.settings.lang; applyI18n(); }
     }
     const sig = JSON.stringify([d.games.map((g) => [g.id, g.cover, g.fav, g.title]), d.systems.length]);
@@ -251,10 +259,15 @@ function updateHero() {
 
 // ------------------------------------------------------------ focus / navigation
 function applyFocus(scroll = true) {
-  document.querySelectorAll(".card.focus, .nav-item.focus").forEach((e) => e.classList.remove("focus"));
+  document.querySelectorAll(".card.focus, .nav-item.focus").forEach((e) => e.classList.remove("focus", "edge-l", "edge-r", "edge-t"));
   if (state.zone === "grid") {
     const c = $(`.card[data-i="${state.gi}"]`);
     if (c) {
+      // agrandie ×1,5 : sur les bords de la grille elle grandit vers l'intérieur pour rester visible
+      const cols = columns();
+      c.classList.toggle("edge-l", state.gi % cols === 0);
+      c.classList.toggle("edge-r", cols > 1 && state.gi % cols === cols - 1);
+      c.classList.toggle("edge-t", state.gi < cols);
       c.classList.add("focus");
       if (scroll) c.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
@@ -331,6 +344,43 @@ function cycleSort() {
   render(cur && cur.id);
   toast(t("sortBy", SORTS[state.sort].label()));
 }
+
+// ------------------------------------------------------------ taille des jaquettes (LT / RT, −/+, 50 à 200 %)
+const zoom = { pct: 100 };
+try { zoom.pct = +localStorage.getItem("formula.zoom") || 100; } catch (e) {}
+function paintZoom() {
+  document.documentElement.style.setProperty("--card-w", Math.round(148 * zoom.pct / 100) + "px");
+  $("#zoom-range").value = zoom.pct;
+  $("#zoom-val").textContent = zoom.pct + " %";
+}
+function setZoom(pct) {
+  pct = Math.max(50, Math.min(200, Math.round(pct / 10) * 10));
+  if (pct === zoom.pct) return;
+  zoom.pct = pct;
+  try { localStorage.setItem("formula.zoom", pct); } catch (e) {}
+  paintZoom();
+  if (state.zone === "grid") applyFocus();   // les colonnes changent : bords et défilement à recalculer
+}
+const zoomStep = (d) => setZoom(zoom.pct + d * 10);
+$("#zoom-out").onclick = () => zoomStep(-1);
+$("#zoom-in").onclick = () => zoomStep(1);
+$("#zoom-range").addEventListener("input", (e) => setZoom(+e.target.value));
+$("#zoom-range").addEventListener("pointerup", (e) => e.target.blur());
+
+// ------------------------------------------------------------ affichage (Windows : fenêtre FORMULA.exe)
+// La page n'envoie à FORMULA.exe que deux messages : "fullscreen:1" et "fullscreen:0" (réglage ou F11).
+const display = { fullscreen: false };
+const hasHost = () => !!(window.chrome && window.chrome.webview);
+function setFullscreen(on) {
+  if (!hasHost()) return;
+  display.fullscreen = on;
+  window.chrome.webview.postMessage(on ? "fullscreen:1" : "fullscreen:0");
+  fetch("/api/settings", { method: "POST", body: JSON.stringify({ fullscreen: on }) }).catch(() => {});
+  paintSettings();
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "F11" && hasHost()) { e.preventDefault(); e.stopImmediatePropagation(); setFullscreen(!display.fullscreen); }
+}, true);
 
 // ------------------------------------------------------------ actions
 async function launch() {
@@ -446,7 +496,7 @@ function renderEmus() {
       st.textContent = e.job === "error" ? t("installError", e.error) : e.job === "installing" ? t("installing", e.progress) : t("uninstalling");
       row.appendChild(st);
     }
-    row.querySelector(".check").onclick = () => { settings.row = i + 1; paintSettings(); toggleEmu(e); };
+    row.querySelector(".check").onclick = () => { settings.row = i + optRows().length; paintSettings(); toggleEmu(e); };
     box.appendChild(row);
   });
   paintSettings();
@@ -464,32 +514,43 @@ async function emuAction(e, action) {
   try { await fetch(`/api/emulators/${action}`, { method: "POST", body: JSON.stringify({ id: e.id }) }); } catch (err) {}
   loadEmus();
 }
+// lignes d'options avant la liste des émulateurs : langue, puis affichage (fenêtre FORMULA.exe uniquement)
+const optRows = () => (hasHost() ? ["#set-lang", "#set-display"] : ["#set-lang"]);
 function paintSettings() {
-  document.querySelectorAll("#set-lang .set-opt").forEach((b, i) => {
-    b.classList.toggle("on", b.dataset.lang === LANG);
-    b.classList.toggle("focus", settings.open && settings.row === 0 && settings.col === i);
-  });
+  document.querySelectorAll("#set-lang .set-opt").forEach((b) => b.classList.toggle("on", b.dataset.lang === LANG));
+  document.querySelectorAll("#set-display .set-opt").forEach((b) => b.classList.toggle("on", (b.dataset.fs === "1") === display.fullscreen));
+  optRows().forEach((sel, r) => document.querySelectorAll(sel + " .set-opt").forEach((b, i) => {
+    b.classList.toggle("focus", settings.open && settings.row === r && settings.col === i);
+  }));
+  const first = optRows().length;
   document.querySelectorAll("#emu-list .emu-row").forEach((r, i) => {
-    const cur = settings.open && settings.row === i + 1;
+    const cur = settings.open && settings.row === i + first;
     r.classList.toggle("cur", cur);
     r.querySelector(".check").classList.toggle("focus", cur);
     if (cur && settings.scroll) r.scrollIntoView({ block: "nearest", behavior: "smooth" });
   });
   settings.scroll = false;
 }
+// colonne présélectionnée sur une ligne d'options : l'option active
+function optCol(r) { return [...document.querySelectorAll(optRows()[r] + " .set-opt")].findIndex((b) => b.classList.contains("on")); }
 function settingsHandle(name) {
-  const rows = 1 + settings.emus.length;
-  if (name === "up") { settings.row = (settings.row - 1 + rows) % rows; settings.scroll = true; }
-  else if (name === "down") { settings.row = (settings.row + 1) % rows; settings.scroll = true; }
-  else if ((name === "left" || name === "right") && settings.row === 0) settings.col = name === "left" ? 0 : 1;
+  const opts = optRows().length;
+  const rows = opts + settings.emus.length;
+  if (name === "up" || name === "down") {
+    settings.row = (settings.row + (name === "up" ? -1 : 1) + rows) % rows;
+    settings.scroll = true;
+    if (settings.row < opts) settings.col = Math.max(0, optCol(settings.row));
+  }
+  else if ((name === "left" || name === "right") && settings.row < opts) settings.col = name === "left" ? 0 : 1;
   else if (name === "a") {
-    if (settings.row === 0) document.querySelectorAll("#set-lang .set-opt")[settings.col]?.click();
-    else toggleEmu(settings.emus[settings.row - 1]);
+    if (settings.row < opts) document.querySelectorAll(optRows()[settings.row] + " .set-opt")[settings.col]?.click();
+    else toggleEmu(settings.emus[settings.row - opts]);
   }
   else if (name === "b" || name === "select" || name === "start") return closeSettings();
   paintSettings();
 }
 document.querySelectorAll("#set-lang .set-opt").forEach((b) => { b.onclick = () => setLang(b.dataset.lang); });
+document.querySelectorAll("#set-display .set-opt").forEach((b) => { b.onclick = () => setFullscreen(b.dataset.fs === "1"); });
 $("#settings .set-close").onclick = closeSettings;
 $("#settings").addEventListener("click", (e) => { if (e.target.id === "settings") closeSettings(); });
 
@@ -628,6 +689,8 @@ document.addEventListener("keydown", (e) => {
   else if (k === "o") openSettings();
   else if (k === "/") { $("#search").focus(); }
   else if (k === "x") openOsk();
+  else if (k === "-") zoomStep(-1);
+  else if (k === "+" || k === "=") zoomStep(1);
   else return;
   e.preventDefault();
 });
@@ -639,6 +702,7 @@ const PAD_ACTIONS = {
   left: [() => move(-1, 0), true], right: [() => move(1, 0), true],
   a: [() => activate()], b: [() => back()], x: [() => openOsk()], y: [() => toggleFav()],
   lb: [() => cycleView(-1), true], rb: [() => cycleView(1), true],
+  lt: [() => zoomStep(-1), true], rt: [() => zoomStep(1), true],
   start: [() => cycleSort()], select: [() => openSettings()],
 };
 const repeats = {};
@@ -679,7 +743,7 @@ function padLoop(ts) {
       up: b(12) || ax(1) < -0.5, down: b(13) || ax(1) > 0.5,
       left: b(14) || ax(0) < -0.5, right: b(15) || ax(0) > 0.5,
     };
-    const act = { a: b(0), b: b(1), x: b(2), y: b(3), lb: b(4), rb: b(5), start: b(9), select: b(8) };
+    const act = { a: b(0), b: b(1), x: b(2), y: b(3), lb: b(4), rb: b(5), lt: b(6), rt: b(7), start: b(9), select: b(8) };
     const fire = (name, on, fn, repeat) => {
       if (!on) { pad.held[name] = false; return; }
       if (!pad.held[name]) { pad.held[name] = true; pad.next[name] = ts + 380; fn(); }
