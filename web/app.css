@@ -132,6 +132,24 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 #toast { position: fixed; bottom: 64px; left: 50%; transform: translateX(-50%); z-index: 30; padding: 12px 20px; border-radius: 12px; background: #1b1e2c; border: 1px solid var(--line); font-size: 14px; box-shadow: 0 20px 40px rgba(0,0,0,.6); animation: fade .25s; }
 @keyframes fade { from { opacity: 0; } }
 
+#version { padding: 8px 12px 0; font-size: 10.5px; color: var(--dim); letter-spacing: .04em; font-variant-numeric: tabular-nums; }
+
+/* ---------- paramètres ---------- */
+#settings { position: fixed; inset: 0; z-index: 26; display: grid; place-items: center; background: rgba(4,5,8,.6); backdrop-filter: blur(8px); animation: fade .2s; }
+.set-panel { width: min(560px, 92vw); padding: 22px 24px 16px; border-radius: 20px; background: rgba(17,19,28,.97); border: 1px solid var(--line); box-shadow: 0 30px 60px rgba(0,0,0,.6); }
+.set-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.set-head h2 { margin: 0; font-family: Outfit, sans-serif; font-size: 22px; font-weight: 800; }
+.set-close { width: 36px; height: 36px; border-radius: 10px; background: rgba(255,255,255,.06); border: 1px solid var(--line); color: var(--muted); font-size: 15px; }
+.set-section { padding: 14px 0 6px; border-top: 1px solid var(--line); }
+.set-section h3 { margin: 0 0 4px; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+.set-section p { margin: 0 0 12px; font-size: 13px; color: var(--muted); }
+.set-options { display: flex; gap: 10px; }
+.set-opt { flex: 1; display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 16px; border-radius: 12px; background: rgba(255,255,255,.06); border: 1px solid var(--line); font-size: 15px; font-weight: 600; transition: background .15s, border-color .15s; }
+.set-opt .flag { font-family: Outfit, sans-serif; font-size: 11px; font-weight: 800; padding: 3px 6px; border-radius: 5px; background: rgba(255,255,255,.1); color: var(--muted); }
+.set-opt.on { border-color: rgba(139,108,255,.8); background: rgba(139,108,255,.16); }
+.set-opt.on .flag { background: var(--grad); color: #fff; }
+.set-opt.focus, .set-close.focus { outline: 2px solid #fff; outline-offset: 2px; }
+
 /* ---------- clavier à l'écran ---------- */
 #osk { position: fixed; inset: 0; z-index: 25; display: flex; align-items: flex-end; justify-content: center; background: rgba(4,5,8,.55); backdrop-filter: blur(6px); animation: fade .2s; padding-bottom: 28px; }
 .osk-panel { width: min(860px, 94vw); padding: 18px 20px 14px; border-radius: 20px; background: rgba(17,19,28,.96); border: 1px solid var(--line); box-shadow: 0 30px 60px rgba(0,0,0,.6); }

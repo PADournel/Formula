@@ -31,8 +31,11 @@ APP_DIR = Path(__file__).resolve().parent
 WEB_DIR = APP_DIR / "web"
 IS_WIN = os.name == "nt"
 if IS_WIN:
-    # Windows : tout est rangé à côté de FORMULA (ex. D:\Emulation), rien dans le profil utilisateur
-    BASE = Path(os.environ.get("FORMULA_BASE", APP_DIR.parent))
+    # Windows : le code (dépôt git) et les données lourdes sont séparés. Le dossier de données
+    # (émulateurs, roms, bios, formula-data, python) est donné par FORMULA_BASE ou formula-base.txt.
+    _base_file = APP_DIR / "formula-base.txt"
+    BASE = Path(os.environ.get("FORMULA_BASE")
+                or (_base_file.read_text(encoding="utf-8").strip() if _base_file.exists() else APP_DIR.parent))
     ROMS = BASE / "roms"
     DATA = BASE / "formula-data"
     EMU = BASE / "emulators"
@@ -45,6 +48,20 @@ PORT = int(os.environ.get("FORMULA_PORT", "47800"))
 SYNC_PORT = int(os.environ.get("FORMULA_SYNC_PORT", "47810"))
 UA = {"User-Agent": "FORMULA/1.0 (Steam Deck launcher)"}
 STARTED = time.time()
+# version MAJEUR.MINEUR.CORRECTIF (correctif sur 3 chiffres), propre à chaque plateforme (branche git)
+try:
+    VERSION = (APP_DIR / "VERSION").read_text(encoding="utf-8").strip()
+except OSError:
+    VERSION = "dev"
+PLATFORM = "Windows" if IS_WIN else "Steam Deck"
+SETTINGS_FILE = DATA / "settings.json"
+
+
+def load_settings():
+    try:
+        return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {"lang": "en"}
 
 SYSTEMS = {
     "ps2": {
@@ -903,7 +920,8 @@ class Handler(BaseHTTPRequestHandler):
             systems = [{"id": k, "name": v["name"], "short": v["short"], "order": v.get("order", 99)}
                        for k, v in SYSTEMS.items()]
             return self.send(200, {"games": games, "systems": systems, "scanning": LIB.scanning,
-                                   "running": RUN.running()})
+                                   "running": RUN.running(), "version": VERSION, "platform": PLATFORM,
+                                   "settings": load_settings()})
         if path == "/api/events":
             return self.events()
         if path == "/api/sync":
@@ -949,6 +967,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/rescan":
             threading.Thread(target=LIB.scan, daemon=True).start()
             return self.send(200, {"ok": True})
+        if path == "/api/settings":
+            s = load_settings()
+            if body.get("lang") in ("en", "fr"):
+                s["lang"] = body["lang"]
+            DATA.mkdir(parents=True, exist_ok=True)
+            SETTINGS_FILE.write_text(json.dumps(s, ensure_ascii=False, indent=1), encoding="utf-8")
+            return self.send(200, s)
         if path == "/api/fav":
             with LIB.lock:
                 g = LIB.games.get(body.get("id"))

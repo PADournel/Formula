@@ -8,6 +8,18 @@ Lanceur d'émulateurs façon bibliothèque Steam, pour Steam Deck et PC Windows.
 - Lance le bon émulateur en plein écran, langue française par défaut quand elle existe.
 - Synchronisation des jeux entre appareils (service de fond, reprise automatique, file d'attente si l'autre appareil est éteint).
 - Sauvegardes de tous les émulateurs dans `kDrive/Saves/<console>`.
+- Interface en anglais par défaut, français disponible dans les Paramètres.
+
+## Versions
+
+Une version par plateforme, chacune sur sa branche : `master` = Windows, `linux` = Steam Deck.
+Numérotation `MAJEUR.MINEUR.CORRECTIF`, correctif sur 3 chiffres (ex. `0.2.000`) :
+- MAJEUR : changement profond (format des données, refonte) ;
+- MINEUR : nouvelle fonctionnalité ;
+- CORRECTIF : correction ou petit ajustement, sans nouvelle fonctionnalité.
+
+La version est dans le fichier `VERSION`, affichée en bas à gauche de l'application,
+et chaque publication reçoit une étiquette `windows-vX.Y.ZZZ` ou `linux-vX.Y.ZZZ`.
 
 Consoles : PS2 (PCSX2), PSP (PPSSPP), PS3 (RPCS3), PS4 (shadPS4), NES (Nestopia), N64 (RMG),
 GBA (mGBA), DS (melonDS), GameCube et Wii (Dolphin).
@@ -33,9 +45,22 @@ Le dépôt ne contient que le code. Les données lourdes vivent ailleurs :
 - Synchro : `formula.py --sync` (service systemd `formula-sync` sur le Deck, raccourci « FORMULA synchro » sous Windows).
   Réglages dans `sync.json` du dossier de données : nom de l'appareil, jeton partagé, adresses des autres appareils.
 
+## Installer sous Windows
+
+```
+python tools\install_windows.py G:\Jeux\FORMULA
+```
+
+Télécharge Python (embarqué) et les émulateurs depuis leurs sites officiels (versions fixées dans le script),
+crée l'arborescence, configure les émulateurs et crée le raccourci du bureau. Relançable ; `--update`
+réinstalle les émulateurs. Le BIOS PS2 (`bios\ps2`) et le firmware PS3 (`bios\ps3`) ne sont pas fournis :
+ce sont des fichiers Sony à extraire de sa propre console. Ils ne doivent pas être ajoutés au dépôt, pas plus que les jeux.
+
 ## Outils
 
-- `tools/setup_windows.py` : configure les émulateurs Windows (mode portable, manettes, français, sauvegardes kDrive).
+- `tools/install_windows.py` : installation complète (voir ci-dessus).
+- `tools/setup_windows.py` : configure les émulateurs Windows (mode portable, manettes, français, sauvegardes kDrive),
+  à partir des modèles de `tools/templates`.
 - `tools/steam_shortcut.py` : ajoute FORMULA aux jeux non-Steam avec ses visuels.
 
 ## Ajouter une console
