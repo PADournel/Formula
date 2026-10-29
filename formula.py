@@ -54,6 +54,7 @@ try:
 except OSError:
     VERSION = "dev"
 PLATFORM = "Windows" if IS_WIN else "Steam Deck"
+NO_WINDOW = 0x08000000 if IS_WIN else 0   # CREATE_NO_WINDOW : pas de console qui clignote (ffmpeg, tar…)
 SETTINGS_FILE = DATA / "settings.json"
 
 
@@ -362,7 +363,7 @@ def optimize_image(name, kind):
         subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
                         "-vf", IMG_MAX.get(kind, IMG_MAX["cover"]), "-c:v", "libwebp",
                         "-quality", "82", "-compression_level", "6", str(dst)],
-                       check=True, timeout=60, stdin=subprocess.DEVNULL)
+                       check=True, timeout=60, stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
         if dst.stat().st_size == 0:
             raise OSError("fichier vide")
     except Exception as e:
@@ -674,7 +675,8 @@ class Runner:
         env = dict(os.environ, **s.get("env", {}))
         log = open(DATA / "last_launch.log", "w")
         self.proc = subprocess.Popen(cmd, cwd=cwd or str(HOME), env=env,
-                                     stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+                                     stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                     creationflags=NO_WINDOW)
         self.game = gid
         with lib.lock:
             g["plays"] = g.get("plays", 0) + 1
@@ -1499,9 +1501,12 @@ def open_window_windows():
     global BROWSER
     edge = next((p for p in (r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
                              r"C:\Program Files\Microsoft\Edge\Application\msedge.exe") if Path(p).exists()), "msedge")
-    BROWSER = subprocess.Popen([edge, f"--app=http://127.0.0.1:{PORT}/", "--start-fullscreen",
+    # profil InPrivate : ni assistant de premier lancement, ni proposition de synchro du compte Microsoft
+    # (les réglages de FORMULA sont enregistrés côté serveur, rien n'est perdu entre deux lancements)
+    BROWSER = subprocess.Popen([edge, "--inprivate", f"--app=http://127.0.0.1:{PORT}/", "--start-fullscreen",
                                 f"--user-data-dir={DATA / 'edge-profile'}", "--no-first-run",
-                                "--no-default-browser-check", "--disable-features=Translate"])
+                                "--no-default-browser-check", "--disable-sync", "--disable-background-mode",
+                                "--disable-features=Translate,msImplicitSignin,msEdgeSyncConsent"])
     BROWSER.wait()
     os._exit(0)
 

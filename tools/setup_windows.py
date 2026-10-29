@@ -31,7 +31,8 @@ def junction(link, target):
             if not dst.exists():
                 shutil.move(str(p), str(dst))
         shutil.rmtree(link)
-    subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], check=True, capture_output=True)
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], check=True, capture_output=True,
+                   creationflags=0x08000000)   # pas de console visible quand FORMULA l'appelle
     print("jonction", link, "->", target)
 
 
