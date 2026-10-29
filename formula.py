@@ -31,11 +31,8 @@ APP_DIR = Path(__file__).resolve().parent
 WEB_DIR = APP_DIR / "web"
 IS_WIN = os.name == "nt"
 if IS_WIN:
-    # Windows : le code (dépôt git) et les données lourdes sont séparés. Le dossier de données
-    # (émulateurs, roms, bios, formula-data, python) est donné par FORMULA_BASE ou formula-base.txt.
-    _base_file = APP_DIR / "formula-base.txt"
-    BASE = Path(os.environ.get("FORMULA_BASE")
-                or (_base_file.read_text(encoding="utf-8").strip() if _base_file.exists() else APP_DIR.parent))
+    # Windows : tout est rangé à côté de FORMULA (ex. D:\Emulation), rien dans le profil utilisateur
+    BASE = Path(os.environ.get("FORMULA_BASE", APP_DIR.parent))
     ROMS = BASE / "roms"
     DATA = BASE / "formula-data"
     EMU = BASE / "emulators"
