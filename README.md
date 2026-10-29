@@ -22,7 +22,19 @@ La version est dans le fichier `VERSION`, affichée en bas à gauche de l'applic
 et chaque publication reçoit une étiquette `windows-vX.Y.ZZZ` ou `linux-vX.Y.ZZZ`.
 
 Consoles : PS2 (PCSX2), PSP (PPSSPP), PS3 (RPCS3), PS4 (shadPS4), NES (Nestopia), N64 (RMG),
-GBA (mGBA), DS (melonDS), GameCube et Wii (Dolphin).
+GBA (mGBA), DS (melonDS), GameCube et Wii (Dolphin), Xbox (xemu), Xbox 360 (Xenia Canary).
+Pas de Xbox One : aucun émulateur public ne fait tourner ses jeux (XWine1 n'est pas téléchargeable).
+
+### Xbox et Xbox 360
+
+- Xbox (xemu) : jeux au format XISO (`.iso`, conversion possible avec extract-xiso) dans `roms/xbox`.
+  xemu a besoin de deux fichiers à extraire de sa propre console, à placer dans `bios/xbox` (PC) ou
+  `~/Emulation/bios/xbox` (Deck) : la boot ROM MCPX (`mcpx_1.0.bin`) et le BIOS (`Complex_4627.bin` ou autre `.bin`).
+  Le disque dur virtuel (vierge, publié par le projet xemu, sans contenu Microsoft) et l'EEPROM sont dans
+  `kDrive/Saves/Xbox` : les sauvegardes Xbox sont dans ce disque dur. Pas de recherche de mises à jour.
+- Xbox 360 (Xenia Canary) : `.iso`, `.zar`, ou jeu extrait (dossier contenant `default.xex`) dans `roms/x360`.
+  Aucun fichier système nécessaire. Mode portable, contenu et sauvegardes dans `kDrive/Saves/Xbox 360`,
+  Discord désactivé. Sur le Deck, Xenia est l'AppImage Linux officielle (expérimentale, Vulkan).
 
 ## Sécurité et transparence
 
@@ -99,8 +111,8 @@ Relançable ; `--update` réinstalle les émulateurs ; `--host-only` recompile s
 `FORMULA.exe` est compilé sur place à partir de `tools/winhost/FormulaHost.cs` avec le compilateur C# fourni avec
 Windows (`csc.exe`, .NET Framework 4) et les bibliothèques WebView2 officielles de Microsoft (paquet NuGet
 `Microsoft.Web.WebView2`, version fixée dans le script). Ses DLL sont dans `<base>\host`, son profil web dans
-`<base>\formula-data\webview2`, et il lit le dossier du code dans `<base>\formula-data\code-dir.txt`. Le BIOS PS2 (`bios\ps2`) et le firmware PS3 (`bios\ps3`) ne sont pas fournis :
-ce sont des fichiers Sony à extraire de sa propre console. Ils ne doivent pas être ajoutés au dépôt, pas plus que les jeux.
+`<base>\formula-data\webview2`, et il lit le dossier du code dans `<base>\formula-data\code-dir.txt`. Le BIOS PS2 (`bios\ps2`), le firmware PS3 (`bios\ps3`) et les fichiers Xbox (`bios\xbox`) ne sont pas fournis :
+ce sont des fichiers Sony et Microsoft à extraire de sa propre console. Ils ne doivent pas être ajoutés au dépôt, pas plus que les jeux.
 
 ## Outils
 

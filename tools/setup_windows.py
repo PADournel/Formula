@@ -195,8 +195,51 @@ def rmg():
     ini_set(cfg, "Rosalie's Mupen GUI - Input Plugin Profile 0", prof)
 
 
+XEMU_HDD = "https://github.com/xemu-project/xemu-hdd-image/releases/download/1.0/xbox_hdd.qcow2.zip"
+
+
+def xemu():
+    """xemu (Xbox) : mode portable (xemu.toml à côté de l'exe), BIOS dans bios/xbox, disque dur et EEPROM
+    dans kDrive (les sauvegardes Xbox sont dans le disque dur virtuel)."""
+    d = EMU / "xemu"
+    s = SAVES / "Xbox"
+    s.mkdir(parents=True, exist_ok=True)
+    hdd = s / "xbox_hdd.qcow2"
+    if not hdd.exists():
+        # disque dur vierge publié par le projet xemu, sans contenu Microsoft
+        import io
+        import urllib.request
+        import zipfile
+        req = urllib.request.Request(XEMU_HDD, headers={"User-Agent": "FORMULA-setup/1.0"})
+        with urllib.request.urlopen(req, timeout=120) as r, zipfile.ZipFile(io.BytesIO(r.read())) as z:
+            hdd.write_bytes(z.read("xbox_hdd.qcow2"))
+    bios = BIOS / "xbox"
+    bios.mkdir(parents=True, exist_ok=True)
+    # fichiers à fournir soi-même : boot ROM MCPX et BIOS (flash) ; on prend ceux présents, sinon les noms usuels
+    bins = sorted(bios.glob("*.bin"))
+    mcpx = next((p for p in bins if "mcpx" in p.name.lower()), bios / "mcpx_1.0.bin")
+    flash = next((p for p in bins if p != mcpx and "eeprom" not in p.name.lower()), bios / "Complex_4627.bin")
+    q = lambda p: "'" + str(p) + "'"
+    toml = d / "xemu.toml"
+    ini_set(toml, "general", {"show_welcome": "false", "skip_boot_anim": "true"})
+    ini_set(toml, "general.updates", {"check": "false"})
+    ini_set(toml, "input", {"auto_bind": "true"})
+    ini_set(toml, "sys.files", {"bootrom_path": q(mcpx), "flashrom_path": q(flash),
+                                "eeprom_path": q(s / "eeprom.bin"), "hdd_path": q(hdd)})
+
+
+def xenia():
+    """Xenia Canary (Xbox 360) : mode portable (portable.txt), contenu et sauvegardes dans kDrive,
+    sans Discord."""
+    d = EMU / "xenia"
+    (d / "portable.txt").touch()
+    junction(d / "content", SAVES / "Xbox 360")
+    ini_set(d / "xenia-canary.config.toml", "General", {"discord": "false"})
+    ini_set(d / "xenia-canary.config.toml", "Display", {"fullscreen": "true"})
+
+
 if __name__ == "__main__":
-    for f in (pcsx2, ppsspp, rpcs3, shadps4, mgba, melonds, dolphin, rmg):
+    for f in (pcsx2, ppsspp, rpcs3, shadps4, mgba, melonds, dolphin, rmg, xemu, xenia):
         try:
             f()
             print("ok", f.__name__)

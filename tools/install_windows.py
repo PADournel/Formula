@@ -2,7 +2,8 @@
 
 Télécharge Python (version embarquée) et les émulateurs depuis leurs sites officiels, crée l'arborescence
 de données, configure les émulateurs (tools/setup_windows.py) et crée le raccourci du bureau.
-Ce qui ne peut pas être téléchargé : le BIOS PS2 (bios/ps2) et le firmware PS3 (bios/ps3), à fournir soi-même.
+Ce qui ne peut pas être téléchargé : le BIOS PS2 (bios/ps2), le firmware PS3 (bios/ps3) et les fichiers
+Xbox (bios/xbox : boot ROM MCPX et BIOS), à fournir soi-même.
 
 Usage (avec n'importe quel Python 3.10+) :
     python tools\\install_windows.py G:\\Jeux\\FORMULA
@@ -40,8 +41,13 @@ EMULATORS = {
     "nestopia": ("https://github.com/0ldsk00l/nestopia/releases/download/2.0.0/nestopia-2.0.0-windows-x86_64.zip",
                  "nestopia.exe"),
     "dolphin": ("https://dl.dolphin-emu.org/releases/2609a/dolphin-2609a-x64.7z", "Dolphin-x64/Dolphin.exe"),
+    "xemu": ("https://github.com/xemu-project/xemu/releases/download/v0.8.139/xemu-0.8.139-windows-x86_64.zip",
+             "xemu.exe"),
+    # Xenia Canary : versions nommées par commit (pas de numéro dans l'adresse)
+    "xenia": ("https://github.com/xenia-canary/xenia-canary/releases/download/48b318a/xenia_canary_windows.7z",
+              "xenia_canary.exe"),
 }
-CONSOLES = ["ps2", "psp", "ps3", "ps4", "nes", "n64", "gba", "nds", "gc", "wii"]
+CONSOLES = ["ps2", "psp", "ps3", "ps4", "nes", "n64", "gba", "nds", "gc", "wii", "xbox", "x360"]
 
 # fenêtre FORMULA.exe : bibliothèques WebView2 officielles (NuGet Microsoft), compilées avec csc.exe de Windows
 WEBVIEW2 = "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.4314.35"
@@ -108,7 +114,7 @@ def main():
         desktop_shortcut(base)
         return
     dl = base / "_downloads"
-    for d in ["emulators", "formula-data", "bios/ps2", "bios/ps3", "_downloads"] + [f"roms/{c}" for c in CONSOLES]:
+    for d in ["emulators", "formula-data", "bios/ps2", "bios/ps3", "bios/xbox", "_downloads"] + [f"roms/{c}" for c in CONSOLES]:
         (base / d).mkdir(parents=True, exist_ok=True)
     (REPO / "formula-base.txt").write_text(str(base) + "\n", encoding="utf-8")
 

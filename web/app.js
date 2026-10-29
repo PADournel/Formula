@@ -1,7 +1,8 @@
 "use strict";
 
 const SYS_COLORS = { ps2: "#4c7dff", psp: "#a78bfa", ps3: "#ff4d6d", ps4: "#22b8ff", ps1: "#9aa3b5",
-  nes: "#e4002b", n64: "#2fbf71", gba: "#7c4dff", nds: "#e0e4ee", gc: "#8a6bff", wii: "#3fc6ff" };
+  nes: "#e4002b", n64: "#2fbf71", gba: "#7c4dff", nds: "#e0e4ee", gc: "#8a6bff", wii: "#3fc6ff",
+  xbox: "#5cb82e", x360: "#9bdc3c" };
 // logos à fond plein : affichés dans leurs couleurs d'origine plutôt qu'en silhouette blanche
 const COLOR_LOGOS = new Set(["nes", "gba"]);
 
