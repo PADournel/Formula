@@ -82,7 +82,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 /* ---------- hero ---------- */
 #hero { display: flex; gap: 26px; align-items: flex-end; padding: 26px 30px 18px 0; min-height: 250px; }
-#hero-cover { width: 225px; aspect-ratio: 3 / 4.2; border-radius: 12px; background: var(--panel-solid) center / cover no-repeat; box-shadow: 0 24px 50px -12px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.08); flex: none; transition: background-image .3s; }
+#hero-cover { width: 195px; aspect-ratio: 3 / 4.2; border-radius: 12px; background: var(--panel-solid) center / cover no-repeat; box-shadow: 0 24px 50px -12px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.08); flex: none; transition: background-image .3s; }
 #hero-info { min-width: 0; padding-bottom: 4px; }
 #hero-tags { display: flex; gap: 8px; margin-bottom: 10px; }
 .tag { font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 5px 10px; border-radius: 6px; background: rgba(255,255,255,.08); color: #d9dcec; }
