@@ -11,8 +11,8 @@ from pathlib import Path
 
 F = Path(__file__).resolve().parents[1]                     # dépôt FORMULA (code)
 BASE = Path((F / "formula-base.txt").read_text(encoding="utf-8").strip())   # données (python, émulateurs…)
-EXE = f'"{BASE / "python" / "pythonw.exe"}"'
-OPTS = f'"{F / "formula.py"}" --window'
+EXE = f'"{BASE / "FORMULA.exe"}"'            # fenêtre WebView2 (lance elle-même le serveur)
+OPTS = ""
 NAME = "FORMULA"
 
 
@@ -52,7 +52,7 @@ def main(userdir):
     data = parse(vdf.read_bytes())[0] if vdf.exists() else {"shortcuts": {}}
     sc = data.setdefault("shortcuts", {})
     appid = (zlib.crc32((EXE + NAME).encode()) & 0xFFFFFFFF) | 0x80000000
-    fields = {"Exe": EXE, "StartDir": f'"{F}"', "icon": str(F / "icon.ico"), "LaunchOptions": OPTS}
+    fields = {"Exe": EXE, "StartDir": f'"{BASE}"', "icon": str(F / "icon.ico"), "LaunchOptions": OPTS}
     if vdf.exists():
         shutil.copy(vdf, vdf.with_suffix(".vdf.avant-formula"))
     for k, v in sc.items():

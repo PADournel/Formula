@@ -706,7 +706,7 @@ class Runner:
 # ---------------------------------------------------------------- manette
 
 def win_browser_in_front():
-    """Windows : vrai si la fenêtre au premier plan est celle du navigateur de FORMULA (Edge)."""
+    """Windows : vrai si la fenêtre au premier plan est celle de FORMULA (FORMULA.exe, ou Edge en secours)."""
     import ctypes
     from ctypes import wintypes
     u32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
@@ -721,7 +721,7 @@ def win_browser_in_front():
         size = wintypes.DWORD(1024)
         if not k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
             return True
-        return Path(buf.value).name.lower() == "msedge.exe"
+        return Path(buf.value).name.lower() in ("formula.exe", "msedge.exe")
     finally:
         k32.CloseHandle(h)
 
@@ -1281,9 +1281,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, {"ok": True})
             def bye():
                 time.sleep(0.3)
-                if BROWSER and BROWSER.poll() is None:
-                    BROWSER.terminate()
-                os._exit(0)
+                os._exit(0)     # FORMULA.exe (Windows) / formula.sh (Deck) ferment la fenêtre en voyant le serveur s'arrêter
             threading.Thread(target=bye, daemon=True).start()
             return
         self.send(404, {"error": "not found"})
@@ -1582,23 +1580,13 @@ class Syncer:
             time.sleep(300 if not got else 5)
 
 
-BROWSER = None
-
-
-def open_window_windows():
-    """Windows : ouvre FORMULA dans Edge (mode appli, plein écran) et quitte quand la fenêtre se ferme."""
-    global BROWSER
-    edge = next((p for p in (r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-                             r"C:\Program Files\Microsoft\Edge\Application\msedge.exe") if Path(p).exists()), "msedge")
-    # profil InPrivate : ni assistant de premier lancement, ni proposition de synchro du compte Microsoft
-    # (les réglages de FORMULA sont enregistrés côté serveur, rien n'est perdu entre deux lancements)
-    BROWSER = subprocess.Popen([edge, "--inprivate", f"--app=http://127.0.0.1:{PORT}/", "--start-fullscreen",
-                                f"--user-data-dir={DATA / 'edge-profile'}", "--no-first-run",
-                                "--no-default-browser-check", "--disable-sync", "--disable-background-mode",
-                                "--disable-background-networking", "--disable-component-update", "--no-pings",
-                                "--disable-domain-reliability",
-                                "--disable-features=Translate,msImplicitSignin,msEdgeSyncConsent"])
-    BROWSER.wait()
+def watch_host(pid):
+    """Windows : arrête le serveur si la fenêtre FORMULA.exe qui l'a lancé disparaît (plantage, fin de tâche)."""
+    import ctypes
+    k32 = ctypes.windll.kernel32
+    h = k32.OpenProcess(0x00100000, False, pid)   # SYNCHRONIZE
+    if h:
+        k32.WaitForSingleObject(h, 0xFFFFFFFF)
     os._exit(0)
 
 
@@ -1607,13 +1595,19 @@ def main():
     COVERS.mkdir(parents=True, exist_ok=True)
     if "--sync" in sys.argv:
         return Syncer().run()
+    if "--window" in sys.argv:
+        # ancien mode (raccourcis d'avant la 0.4) : la fenêtre est maintenant FORMULA.exe, qui lance le serveur
+        exe = BASE / "FORMULA.exe"
+        if not exe.exists():
+            sys.exit(f"{exe} introuvable : lancer tools\\install_windows.py")
+        return subprocess.run([str(exe)]).returncode
+    if "--host" in sys.argv:
+        pid = int(sys.argv[sys.argv.index("--host") + 1])
+        threading.Thread(target=watch_host, args=(pid,), daemon=True).start()
     threading.Thread(target=LIB.scan, daemon=True).start()
     threading.Thread(target=PAD.loop, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"FORMULA sur http://127.0.0.1:{PORT}", flush=True)
-    if "--window" in sys.argv:
-        threading.Thread(target=srv.serve_forever, daemon=True).start()
-        open_window_windows()
     srv.serve_forever()
 
 

@@ -43,6 +43,46 @@ EMULATORS = {
 }
 CONSOLES = ["ps2", "psp", "ps3", "ps4", "nes", "n64", "gba", "nds", "gc", "wii"]
 
+# fenêtre FORMULA.exe : bibliothèques WebView2 officielles (NuGet Microsoft), compilées avec csc.exe de Windows
+WEBVIEW2 = "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.4314.35"
+CSC = r"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+
+
+def build_host(base, update=False):
+    """Compile tools/winhost/FormulaHost.cs en <base>/FORMULA.exe (DLL WebView2 dans <base>/host)."""
+    exe, host = base / "FORMULA.exe", base / "host"
+    src = REPO / "tools" / "winhost" / "FormulaHost.cs"
+    (base / "formula-data" / "code-dir.txt").write_text(str(REPO) + "\n", encoding="utf-8")
+    if exe.exists() and exe.stat().st_mtime > src.stat().st_mtime and not update:
+        print("déjà compilé : FORMULA.exe")
+        return
+    pkg = base / "_build" / "webview2"
+    lib = pkg / "lib" / "net462"
+    if not (lib / "Microsoft.Web.WebView2.WinForms.dll").exists():
+        (base / "_build").mkdir(exist_ok=True)
+        z = base / "_downloads" / "webview2.zip"
+        download(WEBVIEW2, z)
+        extract(z, pkg)
+    host.mkdir(exist_ok=True)
+    for f in (lib / "Microsoft.Web.WebView2.Core.dll", lib / "Microsoft.Web.WebView2.WinForms.dll",
+              pkg / "runtimes" / "win-x64" / "native" / "WebView2Loader.dll"):
+        (host / f.name).write_bytes(f.read_bytes())
+    subprocess.run([CSC, "/nologo", "/target:winexe", "/platform:x64", "/optimize+",
+                    f"/out:{exe}", f"/win32icon:{REPO / 'icon.ico'}",
+                    "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll",
+                    f"/r:{host / 'Microsoft.Web.WebView2.Core.dll'}",
+                    f"/r:{host / 'Microsoft.Web.WebView2.WinForms.dll'}", str(src)], check=True)
+    print("compilé :", exe)
+
+
+def desktop_shortcut(base):
+    """Raccourci du bureau vers FORMULA.exe (les manettes XInput marchent sans Steam)."""
+    ps = (f'$ws=New-Object -ComObject WScript.Shell; $d=[Environment]::GetFolderPath("Desktop"); '
+          f'$l=$ws.CreateShortcut("$d\\FORMULA.lnk"); $l.TargetPath="{base}\\FORMULA.exe"; '
+          f'$l.Arguments=""; $l.WorkingDirectory="{base}"; '
+          f'$l.IconLocation="{base}\\FORMULA.exe,0"; $l.Save()')
+    subprocess.run(["powershell", "-NoProfile", "-Command", ps], check=True)
+
 
 def download(url, dest):
     print("téléchargement", url.rsplit("/", 1)[-1])
@@ -62,6 +102,11 @@ def main():
         sys.exit(__doc__)
     base = Path(sys.argv[1]).resolve()
     update = "--update" in sys.argv
+    if "--host-only" in sys.argv:          # recompile seulement FORMULA.exe (+ raccourci du bureau)
+        (base / "_downloads").mkdir(parents=True, exist_ok=True)
+        build_host(base, True)
+        desktop_shortcut(base)
+        return
     dl = base / "_downloads"
     for d in ["emulators", "formula-data", "bios/ps2", "bios/ps3", "_downloads"] + [f"roms/{c}" for c in CONSOLES]:
         (base / d).mkdir(parents=True, exist_ok=True)
@@ -88,13 +133,8 @@ def main():
         (target / ".formula-version").write_text(m.group(1) if m else "?", encoding="utf-8")
 
     subprocess.run([sys.executable, str(REPO / "tools" / "setup_windows.py")], check=True)
-
-    # raccourci du bureau (FORMULA s'ouvre directement ; les manettes XInput marchent sans Steam)
-    ps = (f'$ws=New-Object -ComObject WScript.Shell; $d=[Environment]::GetFolderPath("Desktop"); '
-          f'$l=$ws.CreateShortcut("$d\\FORMULA.lnk"); $l.TargetPath="{py}\\pythonw.exe"; '
-          f'$l.Arguments=\'"{REPO}\\formula.py" --window\'; $l.WorkingDirectory="{REPO}"; '
-          f'$l.IconLocation="{REPO}\\icon.ico"; $l.Save()')
-    subprocess.run(["powershell", "-NoProfile", "-Command", ps], check=True)
+    build_host(base, update)
+    desktop_shortcut(base)
 
     for f in dl.iterdir():
         f.unlink()

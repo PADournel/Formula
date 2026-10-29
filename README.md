@@ -41,12 +41,18 @@ FORMULA ne fait rien en douce. Liste exhaustive de ce qu'il fait :
   `github.com` (version officielle de l'émulateur), `dl.dolphin-emu.org`, ou Flathub sur le Deck.
 - La page elle-même est verrouillée par une politique de sécurité (CSP) : elle ne peut charger ou contacter
   que FORMULA. Les polices sont fournies avec l'application.
-- Le navigateur (Edge sur PC, Chromium sur le Deck) est lancé sans synchro de compte, sans tâches de fond
-  réseau et sans mises à jour de composants (navigation privée sur PC).
+- Sur PC, la fenêtre est `FORMULA.exe` (WebView2, le moteur web fourni avec Windows), pas un navigateur.
+  Elle n'affiche que `http://127.0.0.1:47800/` : toute autre adresse, nouvelle fenêtre, téléchargement ou
+  permission (caméra, micro, notifications…) est refusée, et les outils de développement, menus, zoom,
+  remplissage automatique et SmartScreen sont désactivés. Lancée sans synchro de compte, sans tâches de fond
+  réseau et sans mises à jour de composants. Si WebView2 ne démarre pas, FORMULA demande (Oui/Non) avant
+  d'ouvrir Edge en mode application et navigation privée à la place.
+- Sur le Deck, la fenêtre est Chromium en mode application, avec les mêmes restrictions de lancement.
 
 **Ce qui est lancé** (toujours sans fenêtre de console)
 - L'émulateur du jeu choisi ; `ffmpeg` pour compresser les jaquettes ; `tar` (Windows) ou `flatpak` (Deck)
-  quand tu installes ou désinstalles un émulateur ; le navigateur de l'interface ; le service de synchro.
+  quand tu installes ou désinstalles un émulateur ; la fenêtre de l'interface (sur PC, `FORMULA.exe` lance le
+  serveur `pythonw formula.py --host` et l'arrête en se fermant) ; le service de synchro.
 
 **Ce qui est écrit sur le disque**
 - Le dossier de données (`<base>` sous Windows, `~/Emulation` et `~/.local/share/formula` sur le Deck),
@@ -70,7 +76,8 @@ Le dépôt ne contient que le code. Les données lourdes vivent ailleurs :
 ## Lancer
 
 - Deck : `formula.sh` (raccourci Steam « FORMULA », qui donne la manette Steam Input aux émulateurs).
-- Windows : `<base>\python\pythonw.exe formula.py --window`.
+- Windows : `<base>\FORMULA.exe` (raccourci du bureau et raccourci Steam « FORMULA »). F11 bascule entre
+  plein écran et fenêtre. `formula.py --window` reste accepté et ouvre `FORMULA.exe`.
 - Synchro : `formula.py --sync` (service systemd `formula-sync` sur le Deck, raccourci « FORMULA synchro » sous Windows).
   Réglages dans `sync.json` du dossier de données : nom de l'appareil, jeton partagé, adresses des autres appareils.
 
@@ -81,8 +88,13 @@ python tools\install_windows.py G:\Jeux\FORMULA
 ```
 
 Télécharge Python (embarqué) et les émulateurs depuis leurs sites officiels (versions fixées dans le script),
-crée l'arborescence, configure les émulateurs et crée le raccourci du bureau. Relançable ; `--update`
-réinstalle les émulateurs. Le BIOS PS2 (`bios\ps2`) et le firmware PS3 (`bios\ps3`) ne sont pas fournis :
+crée l'arborescence, configure les émulateurs, compile `FORMULA.exe` et crée le raccourci du bureau.
+Relançable ; `--update` réinstalle les émulateurs ; `--host-only` recompile seulement `FORMULA.exe`.
+
+`FORMULA.exe` est compilé sur place à partir de `tools/winhost/FormulaHost.cs` avec le compilateur C# fourni avec
+Windows (`csc.exe`, .NET Framework 4) et les bibliothèques WebView2 officielles de Microsoft (paquet NuGet
+`Microsoft.Web.WebView2`, version fixée dans le script). Ses DLL sont dans `<base>\host`, son profil web dans
+`<base>\formula-data\webview2`, et il lit le dossier du code dans `<base>\formula-data\code-dir.txt`. Le BIOS PS2 (`bios\ps2`) et le firmware PS3 (`bios\ps3`) ne sont pas fournis :
 ce sont des fichiers Sony à extraire de sa propre console. Ils ne doivent pas être ajoutés au dépôt, pas plus que les jeux.
 
 ## Outils
@@ -90,7 +102,8 @@ ce sont des fichiers Sony à extraire de sa propre console. Ils ne doivent pas �
 - `tools/install_windows.py` : installation complète (voir ci-dessus).
 - `tools/setup_windows.py` : configure les émulateurs Windows (mode portable, manettes, français, sauvegardes kDrive),
   à partir des modèles de `tools/templates`.
-- `tools/steam_shortcut.py` : ajoute FORMULA aux jeux non-Steam avec ses visuels.
+- `tools/steam_shortcut.py` : ajoute FORMULA (`FORMULA.exe`) aux jeux non-Steam avec ses visuels.
+- `tools/winhost/` : source de la fenêtre Windows `FORMULA.exe`.
 
 ## Ajouter une console
 
