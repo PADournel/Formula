@@ -24,6 +24,35 @@ et chaque publication reçoit une étiquette `windows-vX.Y.ZZZ` ou `linux-vX.Y.Z
 Consoles : PS2 (PCSX2), PSP (PPSSPP), PS3 (RPCS3), PS4 (shadPS4), NES (Nestopia), N64 (RMG),
 GBA (mGBA), DS (melonDS), GameCube et Wii (Dolphin).
 
+## Sécurité et transparence
+
+FORMULA ne fait rien en douce. Liste exhaustive de ce qu'il fait :
+
+**Ce qui écoute sur le réseau**
+- L'interface : `127.0.0.1:47800`, accessible uniquement depuis l'appareil lui-même.
+- La synchro (`formula.py --sync`) : port `47810`. Elle n'écoute que si `sync.json` contient un jeton
+  d'au moins 16 caractères et au moins un appareil. Elle refuse toute demande qui ne vient pas
+  du réseau local (adresses privées) ou qui n'a pas le jeton. Elle ne sert que des fichiers du dossier `roms`.
+
+**Ce qui sort sur Internet** (rien d'autre, aucune télémétrie, aucune statistique)
+- Jaquettes : `art.gametdb.com`, `thumbnails.libretro.com`, `raw.githubusercontent.com` (dépôts xlenore/ps2-covers et
+  aldostools/Resources), une seule fois par jeu, stockées ensuite en local.
+- Installation d'un émulateur depuis Paramètres, uniquement quand tu coches la case : `api.github.com` et
+  `github.com` (version officielle de l'émulateur), `dl.dolphin-emu.org`, ou Flathub sur le Deck.
+- La page elle-même est verrouillée par une politique de sécurité (CSP) : elle ne peut charger ou contacter
+  que FORMULA. Les polices sont fournies avec l'application.
+- Le navigateur (Edge sur PC, Chromium sur le Deck) est lancé sans synchro de compte, sans tâches de fond
+  réseau et sans mises à jour de composants (navigation privée sur PC).
+
+**Ce qui est lancé** (toujours sans fenêtre de console)
+- L'émulateur du jeu choisi ; `ffmpeg` pour compresser les jaquettes ; `tar` (Windows) ou `flatpak` (Deck)
+  quand tu installes ou désinstalles un émulateur ; le navigateur de l'interface ; le service de synchro.
+
+**Ce qui est écrit sur le disque**
+- Le dossier de données (`<base>` sous Windows, `~/Emulation` et `~/.local/share/formula` sur le Deck),
+  les réglages des émulateurs, et les sauvegardes dans `kDrive/Saves/<console>`. Rien d'autre :
+  pas de registre, pas de démarrage automatique ajouté à ton insu.
+
 ## Organisation
 
 Le dépôt ne contient que le code. Les données lourdes vivent ailleurs :
