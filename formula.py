@@ -1435,7 +1435,9 @@ class Syncer:
         except Exception:
             remote = load_json(cache, {"files": {}})
             online = False
-        todo = [v for k, v in remote.get("files", {}).items() if k not in local and k not in deleted]
+        # absents ici, ou présents mais différents et plus récents chez l'autre (copie incomplète remplacée)
+        todo = [v for k, v in remote.get("files", {}).items() if k not in deleted and (
+            k not in local or (local[k]["size"] != v["size"] and v["mtime"] > local[k]["mtime"]))]
         name = remote.get("device") or peer
         info = {"name": name, "online": online, "pending": len(todo),
                 "pending_bytes": sum(v["size"] for v in todo), "checked": time.time()}
