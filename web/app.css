@@ -58,7 +58,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 #nav { scrollbar-width: none; }
 .nav-item .logo-box { display: flex; align-items: center; width: 100px; height: 20px; }
 /* fine ligne entre deux consoles */
-.nav-item.console + .nav-item.console::before { content: ""; position: absolute; top: -2px; left: 12px; right: 12px; height: 1px; background: rgba(255,255,255,.07); }
+.nav-item.console + .nav-item.console::before { content: ""; position: absolute; top: -2px; left: 12px; right: 12px; height: 1px; background: rgba(255,255,255,.14); }
 .nav-item .logo-box img { max-width: 100%; max-height: 100%; object-fit: contain; filter: brightness(0) invert(1); opacity: .62; transition: opacity .15s; }
 .nav-item .logo-box.color img { filter: none; opacity: .8; }
 .nav-item:hover .logo-box img, .nav-item.active .logo-box img, .nav-item.focus .logo-box img { opacity: 1; }
