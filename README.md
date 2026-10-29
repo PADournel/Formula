@@ -32,7 +32,7 @@ FORMULA ne fait rien en douce. Liste exhaustive de ce qu'il fait :
 - L'interface : `127.0.0.1:47800`, accessible uniquement depuis l'appareil lui-même.
 - La synchro (`formula.py --sync`) : port `47810`. Elle n'écoute que si `sync.json` contient un jeton
   d'au moins 16 caractères et au moins un appareil. Elle refuse toute demande qui ne vient pas
-  du réseau local (adresses privées) ou qui n'a pas le jeton. Elle ne sert que des fichiers du dossier `roms`.
+  du réseau local (adresses privées) ou qui n'a pas le jeton. Elle ne sert que les fichiers du dossier `roms` et les jaquettes déjà téléchargées.
 
 **Ce qui sort sur Internet** (rien d'autre, aucune télémétrie, aucune statistique)
 - Jaquettes : `art.gametdb.com`, `thumbnails.libretro.com`, `raw.githubusercontent.com` (dépôts xlenore/ps2-covers et
