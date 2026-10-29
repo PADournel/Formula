@@ -8,6 +8,18 @@ Lanceur d'émulateurs façon bibliothèque Steam, pour Steam Deck et PC Windows.
 - Lance le bon émulateur en plein écran, langue française par défaut quand elle existe.
 - Synchronisation des jeux entre appareils (service de fond, reprise automatique, file d'attente si l'autre appareil est éteint).
 - Sauvegardes de tous les émulateurs dans `kDrive/Saves/<console>`.
+- Interface en anglais par défaut, français disponible dans les Paramètres.
+
+## Versions
+
+Une version par plateforme, chacune sur sa branche : `master` = Windows, `linux` = Steam Deck.
+Numérotation `MAJEUR.MINEUR.CORRECTIF`, correctif sur 3 chiffres (ex. `0.2.000`) :
+- MAJEUR : changement profond (format des données, refonte) ;
+- MINEUR : nouvelle fonctionnalité ;
+- CORRECTIF : correction ou petit ajustement, sans nouvelle fonctionnalité.
+
+La version est dans le fichier `VERSION`, affichée en bas à gauche de l'application,
+et chaque publication reçoit une étiquette `windows-vX.Y.ZZZ` ou `linux-vX.Y.ZZZ`.
 
 Consoles : PS2 (PCSX2), PSP (PPSSPP), PS3 (RPCS3), PS4 (shadPS4), NES (Nestopia), N64 (RMG),
 GBA (mGBA), DS (melonDS), GameCube et Wii (Dolphin).

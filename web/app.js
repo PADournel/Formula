@@ -4,11 +4,77 @@ const SYS_COLORS = { ps2: "#4c7dff", psp: "#a78bfa", ps3: "#ff4d6d", ps4: "#22b8
   nes: "#e4002b", n64: "#2fbf71", gba: "#7c4dff", nds: "#e0e4ee", gc: "#8a6bff", wii: "#3fc6ff" };
 // logos à fond plein : affichés dans leurs couleurs d'origine plutôt qu'en silhouette blanche
 const COLOR_LOGOS = new Set(["nes", "gba"]);
+
+// ------------------------------------------------------------ langues (anglais par défaut)
+const I18N = {
+  en: {
+    refresh: "Refresh", settings: "Settings", quit: "Quit", search: "Search for a game", searchShort: "Search",
+    play: "Play", favorite: "Favorite", console: "Console", sort: "Sort", back: "Back", close: "Close",
+    choose: "Choose", library: "Library", recent: "Recent", favorites: "Favorites", consoles: "Consoles",
+    allGames: "All games", recentlyPlayed: "Recently played", recentlyAdded: "Recently added",
+    games: (n) => `${n} game${n === 1 ? "" : "s"}`, noResult: "No result", welcome: "Welcome to FORMULA",
+    welcomeHint: "Add games to your roms folder to fill your library.",
+    empty: "No games here yet.", emptyHint: "Games go in <code>roms/&lt;console&gt;</code>, then “Refresh”.",
+    playedTimes: (n) => `Played ${n} time${n === 1 ? "" : "s"}`, lastPlayed: (s) => `Last played ${s}`,
+    today: "today", yesterday: "yesterday", daysAgo: (n) => `${n} days ago`,
+    scanning: "Scanning library…", refreshing: "Refreshing library…", sortBy: (s) => `Sort: ${s}`,
+    launchFailed: "Could not launch the game", padFound: "Controller detected",
+    running: "Now playing", runningHint: "Quit the game from the emulator menu to come back here.",
+    oskType: "Type", oskErase: "Erase", oskSpace: "Space", oskDone: "Done", oskSpaceKey: "Space", oskClear: "Clear",
+    language: "Language", languageHint: "Language of the FORMULA interface.",
+    syncStopped: "⇄ Sync stopped", syncCopy: (name, n, pct) => `⇄ Copying from ${name}: ${n} game${n === 1 ? "" : "s"} (${pct}%)`,
+    syncOff: (name, n, size) => `⇄ ${name} offline: ${n} game${n === 1 ? "" : "s"} pending (${size})`,
+    syncOk: "⇄ Library up to date", gb: "GB", mb: "MB", locale: "en-GB", dec: ".",
+  },
+  fr: {
+    refresh: "Actualiser", settings: "Paramètres", quit: "Quitter", search: "Rechercher un jeu", searchShort: "Rechercher",
+    play: "Jouer", favorite: "Favori", console: "Console", sort: "Trier", back: "Retour", close: "Fermer",
+    choose: "Choisir", library: "Bibliothèque", recent: "Récents", favorites: "Favoris", consoles: "Consoles",
+    allGames: "Tous les jeux", recentlyPlayed: "Joués récemment", recentlyAdded: "Ajoutés récemment",
+    games: (n) => `${n} jeu${n > 1 ? "x" : ""}`, noResult: "Aucun résultat", welcome: "Bienvenue sur FORMULA",
+    welcomeHint: "Ajoute des jeux dans le dossier roms pour remplir ta bibliothèque.",
+    empty: "Aucun jeu ici pour l'instant.", emptyHint: "Les jeux se rangent dans <code>roms/&lt;console&gt;</code>, puis « Actualiser ».",
+    playedTimes: (n) => `Lancé ${n} fois`, lastPlayed: (s) => `Dernière partie ${s}`,
+    today: "aujourd'hui", yesterday: "hier", daysAgo: (n) => `il y a ${n} jours`,
+    scanning: "Analyse de la bibliothèque…", refreshing: "Actualisation de la bibliothèque…", sortBy: (s) => `Tri : ${s}`,
+    launchFailed: "Lancement impossible", padFound: "Manette détectée",
+    running: "En cours", runningHint: "Quitte le jeu depuis le menu de l'émulateur pour revenir ici.",
+    oskType: "Taper", oskErase: "Effacer", oskSpace: "Espace", oskDone: "Valider", oskSpaceKey: "Espace", oskClear: "Tout effacer",
+    language: "Langue", languageHint: "Langue de l'interface de FORMULA.",
+    syncStopped: "⇄ Synchro arrêtée", syncCopy: (name, n, pct) => `⇄ Copie depuis ${name} : ${n} jeu${n > 1 ? "x" : ""} (${pct} %)`,
+    syncOff: (name, n, size) => `⇄ ${name} éteint : ${n} jeu${n > 1 ? "x" : ""} en attente (${size})`,
+    syncOk: "⇄ Bibliothèque à jour", gb: "Go", mb: "Mo", locale: "fr-FR", dec: ",",
+  },
+};
+let LANG = "en";
+try { LANG = localStorage.getItem("formula.lang") || "en"; } catch (e) {}
+function t(key, ...args) {
+  const v = (I18N[LANG] || I18N.en)[key] ?? I18N.en[key] ?? key;
+  return typeof v === "function" ? v(...args) : v;
+}
 const SORTS = [
-  { id: "az", label: "A → Z", fn: (a, b) => a.title.localeCompare(b.title, "fr") },
-  { id: "recent", label: "Joués récemment", fn: (a, b) => (b.last_played || 0) - (a.last_played || 0) || a.title.localeCompare(b.title, "fr") },
-  { id: "added", label: "Ajoutés récemment", fn: (a, b) => (b.added || 0) - (a.added || 0) },
+  { id: "az", label: () => "A → Z", fn: (a, b) => a.title.localeCompare(b.title, t("locale")) },
+  { id: "recent", label: () => t("recentlyPlayed"), fn: (a, b) => (b.last_played || 0) - (a.last_played || 0) || a.title.localeCompare(b.title, t("locale")) },
+  { id: "added", label: () => t("recentlyAdded"), fn: (a, b) => (b.added || 0) - (a.added || 0) },
 ];
+
+function applyI18n() {
+  document.documentElement.lang = LANG;
+  document.querySelectorAll("[data-i18n]").forEach((e) => { e.textContent = t(e.dataset.i18n); });
+  document.querySelectorAll("[data-i18n-html]").forEach((e) => { e.innerHTML = t(e.dataset.i18nHtml); });
+  document.querySelectorAll("[data-i18n-ph]").forEach((e) => { e.placeholder = t(e.dataset.i18nPh); });
+  document.querySelectorAll("[data-i18n-title]").forEach((e) => { e.title = t(e.dataset.i18nTitle); });
+  buildOsk();
+  render();
+  paintSettings();
+}
+async function setLang(lang) {
+  if (!I18N[lang]) return;
+  LANG = lang;
+  try { localStorage.setItem("formula.lang", lang); } catch (e) {}
+  applyI18n();
+  try { await fetch("/api/settings", { method: "POST", body: JSON.stringify({ lang }) }); } catch (e) {}
+}
 
 const $ = (s) => document.querySelector(s);
 const state = {
@@ -22,15 +88,21 @@ const sysShort = (id) => (state.systems.find((s) => s.id === id) || {}).short ||
 const coverUrl = (g) => (g.cover ? "/covers/" + g.cover : g.icon ? "/covers/" + g.icon : null);
 
 // ------------------------------------------------------------ données
+let firstLoad = true;
 async function load() {
   try {
     const r = await fetch("/api/library", { cache: "no-store" });
     const d = await r.json();
+    if (firstLoad) {
+      firstLoad = false;
+      $("#version").textContent = `v${d.version}${d.platform ? " · " + d.platform : ""}`;
+      if (d.settings && d.settings.lang && d.settings.lang !== LANG) { LANG = d.settings.lang; applyI18n(); }
+    }
     const sig = JSON.stringify([d.games.map((g) => [g.id, g.cover, g.fav, g.title]), d.systems.length]);
     state.systems = d.systems.sort((a, b) => a.order - b.order);
     setRunning(d.running);
     $("#status").classList.toggle("hidden", !d.scanning);
-    $("#status").textContent = "Analyse de la bibliothèque…";
+    $("#status").textContent = t("scanning");
     if (sig !== state.sig) {
       const cur = visible()[state.gi];
       state.games = d.games;
@@ -55,10 +127,10 @@ function visible() {
 function navItems() {
   const count = (f) => state.games.filter(f).length;
   const items = [
-    { id: "all", icon: "▦", label: "Bibliothèque", n: state.games.length },
-    { id: "recent", icon: "◷", label: "Récents", n: count((g) => g.last_played) },
-    { id: "fav", icon: "★", label: "Favoris", n: count((g) => g.fav) },
-    { label: "Consoles" },
+    { id: "all", icon: "▦", label: t("library"), n: state.games.length },
+    { id: "recent", icon: "◷", label: t("recent"), n: count((g) => g.last_played) },
+    { id: "fav", icon: "★", label: t("favorites"), n: count((g) => g.fav) },
+    { label: t("consoles") },
   ];
   for (const s of state.systems) items.push({ id: s.id, sys: s.short, label: s.name, n: count((g) => g.system === s.id) });
   return items;
@@ -85,13 +157,13 @@ function render(keepId) {
     b.onclick = () => setView(it.id);
     nav.appendChild(b);
   }
-  $("#sort").textContent = "⇅ " + SORTS[state.sort].label;
+  $("#sort").textContent = "⇅ " + SORTS[state.sort].label();
 
   const list = visible();
-  const titles = { all: "Tous les jeux", recent: "Joués récemment", fav: "Favoris" };
+  const titles = { all: t("allGames"), recent: t("recentlyPlayed"), fav: t("favorites") };
   const sysObj = state.systems.find((s) => s.id === state.view);
   $("#section-title").textContent = titles[state.view] || (sysObj ? sysObj.name : "");
-  $("#count").textContent = list.length + (list.length > 1 ? " jeux" : " jeu");
+  $("#count").textContent = t("games", list.length);
 
   const grid = $("#grid");
   grid.innerHTML = "";
@@ -136,10 +208,11 @@ function updateHero() {
   $("#play").disabled = !g;
   $("#fav").disabled = !g;
   if (!g) {
-    $("#hero-title").textContent = state.games.length ? "Aucun résultat" : "Bienvenue sur FORMULA";
+    $("#hero-title").textContent = state.games.length ? t("noResult") : t("welcome");
     $("#hero-tags").innerHTML = "";
-    $("#hero-meta").textContent = state.games.length ? "" : "Ajoute des jeux dans ~/Emulation/roms pour remplir ta bibliothèque.";
+    $("#hero-meta").textContent = state.games.length ? "" : t("welcomeHint");
     $("#hero-cover").style.backgroundImage = "";
+    $("#fav").textContent = "☆ " + t("favorite");
     art.classList.remove("on");
     return;
   }
@@ -149,16 +222,16 @@ function updateHero() {
     (g.region ? `<span class="tag">${esc(g.region)}</span>` : "");
   const meta = [];
   if (g.serial) meta.push(g.serial);
-  if (g.plays) meta.push(`Lancé ${g.plays} fois`);
-  if (g.last_played) meta.push("Dernière partie " + ago(g.last_played));
-  if (g.size) meta.push((g.size / 1e9).toFixed(1).replace(".", ",") + " Go");
+  if (g.plays) meta.push(t("playedTimes", g.plays));
+  if (g.last_played) meta.push(t("lastPlayed", ago(g.last_played)));
+  if (g.size) meta.push((g.size / 1e9).toFixed(1).replace(".", t("dec")) + " " + t("gb"));
   $("#hero-meta").innerHTML = meta.map((m) => `<span>${esc(m)}</span>`).join("");
   $("#hero-cover").style.backgroundImage = url ? `url("${url}")` : "";
   const bg = g.hero ? "/covers/" + g.hero : url;
   art.style.backgroundImage = bg ? `url("${bg}")` : "";
   art.classList.toggle("on", !!bg);
   $("#fav").classList.toggle("on", !!g.fav);
-  $("#fav").textContent = g.fav ? "★ Favori" : "☆ Favori";
+  $("#fav").textContent = (g.fav ? "★ " : "☆ ") + t("favorite");
   document.documentElement.style.setProperty("--a1", color(g.system));
 }
 
@@ -242,7 +315,7 @@ function cycleSort() {
   try { localStorage.setItem("formula.sort", state.sort); } catch (e) {}
   const cur = visible()[state.gi];
   render(cur && cur.id);
-  toast("Tri : " + SORTS[state.sort].label);
+  toast(t("sortBy", SORTS[state.sort].label()));
 }
 
 // ------------------------------------------------------------ actions
@@ -253,7 +326,7 @@ async function launch() {
   if (c) { c.classList.remove("launch"); void c.offsetWidth; c.classList.add("launch"); }
   const r = await fetch("/api/launch", { method: "POST", body: JSON.stringify({ id: g.id }) });
   const d = await r.json();
-  if (!d.ok) return toast(d.message || "Lancement impossible");
+  if (!d.ok) return toast(t("launchFailed"));
   setRunning(g.id);
 }
 
@@ -279,18 +352,19 @@ function setRunning(id) {
 
 let toastT;
 function toast(msg) {
-  const t = $("#toast");
-  t.textContent = msg;
-  t.classList.remove("hidden");
+  const el = $("#toast");
+  el.textContent = msg;
+  el.classList.remove("hidden");
   clearTimeout(toastT);
-  toastT = setTimeout(() => t.classList.add("hidden"), 2200);
+  toastT = setTimeout(() => el.classList.add("hidden"), 2200);
 }
 
 document.querySelector('[data-action="rescan"]').onclick = async () => {
   await fetch("/api/rescan", { method: "POST" });
-  toast("Actualisation de la bibliothèque…");
+  toast(t("refreshing"));
   setTimeout(load, 800);
 };
+document.querySelector('[data-action="settings"]').onclick = () => openSettings();
 document.querySelector('[data-action="quit"]').onclick = async () => {
   try { await fetch("/api/quit", { method: "POST" }); } catch (e) {}
   window.close();
@@ -300,14 +374,45 @@ $("#fav").onclick = toggleFav;
 $("#sort").onclick = cycleSort;
 $("#search").addEventListener("input", (e) => { state.query = e.target.value; state.gi = 0; render(); });
 
+// ------------------------------------------------------------ paramètres
+const settings = { open: false, idx: 0 };
+const settingsItems = () => [...document.querySelectorAll("#settings .set-opt, #settings .set-close")];
+function openSettings() {
+  settings.open = true;
+  settings.idx = Math.max(0, settingsItems().findIndex((e) => e.dataset.lang === LANG));
+  $("#settings").classList.remove("hidden");
+  paintSettings();
+}
+function closeSettings() { settings.open = false; $("#settings").classList.add("hidden"); stopRepeats(); }
+function paintSettings() {
+  document.querySelectorAll("#set-lang .set-opt").forEach((b) => b.classList.toggle("on", b.dataset.lang === LANG));
+  settingsItems().forEach((e, i) => e.classList.toggle("focus", settings.open && i === settings.idx));
+}
+function settingsHandle(name) {
+  const items = settingsItems();
+  if (name === "left" || name === "up") settings.idx = (settings.idx - 1 + items.length) % items.length;
+  else if (name === "right" || name === "down") settings.idx = (settings.idx + 1) % items.length;
+  else if (name === "a") items[settings.idx]?.click();
+  else if (name === "b" || name === "select" || name === "start") return closeSettings();
+  paintSettings();
+}
+document.querySelectorAll("#set-lang .set-opt").forEach((b) => { b.onclick = () => setLang(b.dataset.lang); });
+$("#settings .set-close").onclick = closeSettings;
+$("#settings").addEventListener("click", (e) => { if (e.target.id === "settings") closeSettings(); });
+
 // ------------------------------------------------------------ clavier à l'écran (manette / tactile)
-const OSK_ROWS = ["1234567890", "AZERTYUIOP", "QSDFGHJKLM", "WXCVBN'-:&"];
+const OSK_LAYOUTS = {
+  fr: ["1234567890", "AZERTYUIOP", "QSDFGHJKLM", "WXCVBN'-:&"],
+  en: ["1234567890", "QWERTYUIOP", "ASDFGHJKL'", "ZXCVBNM-:&"],
+};
 const OSK_REPEAT = new Set(["up", "down", "left", "right", "b"]);
 const osk = { open: false, idx: 10, keys: [] };
-(function buildOsk() {
+function buildOsk() {
   const box = $("#osk-keys");
-  OSK_ROWS.forEach((row, r) => [...row].forEach((ch, c) => osk.keys.push({ k: ch, label: ch, r, c, s: 1 })));
-  [["space", "Espace", 4], ["back", "⌫", 2], ["clear", "Tout effacer", 2], ["ok", "OK", 2]]
+  box.innerHTML = "";
+  osk.keys = [];
+  (OSK_LAYOUTS[LANG] || OSK_LAYOUTS.en).forEach((row, r) => [...row].forEach((ch, c) => osk.keys.push({ k: ch, label: ch, r, c, s: 1 })));
+  [["space", t("oskSpaceKey"), 4], ["back", "⌫", 2], ["clear", t("oskClear"), 2], ["ok", "OK", 2]]
     .reduce((c, [k, label, s]) => { osk.keys.push({ k, label, r: 4, c, s }); return c + s; }, 0);
   osk.keys.forEach((key, i) => {
     const b = document.createElement("button");
@@ -317,7 +422,7 @@ const osk = { open: false, idx: 10, keys: [] };
     key.el = b;
     box.appendChild(b);
   });
-})();
+}
 
 function openOsk() {
   osk.open = true;
@@ -371,12 +476,19 @@ function oskHandle(name) {
 $("#osk").addEventListener("click", (e) => { if (e.target.id === "osk") closeOsk(); });
 $("#search").addEventListener("pointerdown", (e) => { if (e.pointerType === "touch") { e.preventDefault(); openOsk(); } });
 
+// une surcouche ouverte (clavier, paramètres) reçoit les commandes à la place de la bibliothèque
+function overlayHandler() {
+  if (osk.open) return oskHandle;
+  if (settings.open) return settingsHandle;
+  return null;
+}
+
 // ------------------------------------------------------------ clavier
 document.addEventListener("keydown", (e) => {
-  if (osk.open) {
-    const map = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "a", Escape: "x", Backspace: "b" };
-    if (map[e.key]) oskHandle(map[e.key]);
-    else if (e.key.length === 1) setQuery(state.query + e.key.toLowerCase());
+  if (osk.open || settings.open) {
+    const map = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "a", Escape: osk.open ? "x" : "b", Backspace: "b" };
+    if (map[e.key]) overlayHandler()(map[e.key]);
+    else if (osk.open && e.key.length === 1) setQuery(state.query + e.key.toLowerCase());
     else return;
     e.preventDefault();
     return;
@@ -394,6 +506,7 @@ document.addEventListener("keydown", (e) => {
   else if (k === "e" || k === "PageDown") cycleView(1);
   else if (k === "f") toggleFav();
   else if (k === "s") cycleSort();
+  else if (k === "o") openSettings();
   else if (k === "/") { $("#search").focus(); }
   else if (k === "x") openOsk();
   else return;
@@ -407,7 +520,7 @@ const PAD_ACTIONS = {
   left: [() => move(-1, 0), true], right: [() => move(1, 0), true],
   a: [() => activate()], b: [() => back()], x: [() => openOsk()], y: [() => toggleFav()],
   lb: [() => cycleView(-1), true], rb: [() => cycleView(1), true],
-  start: [() => cycleSort()], select: [() => cycleSort()],
+  start: [() => cycleSort()], select: [() => openSettings()],
 };
 const repeats = {};
 function stopRepeats() { for (const k in repeats) { clearTimeout(repeats[k]); delete repeats[k]; } }
@@ -419,7 +532,8 @@ function connectPad() {
     if (m.t === "hello") { serverPads = m.pads; return; }
     if (m.t === "resume") { stopRepeats(); load(); return; }
     serverPads = Math.max(serverPads, 1);
-    const act = osk.open ? [() => oskHandle(m.b), OSK_REPEAT.has(m.b)] : PAD_ACTIONS[m.b];
+    const over = overlayHandler();
+    const act = over ? [() => over(m.b), OSK_REPEAT.has(m.b)] : PAD_ACTIONS[m.b];
     if (!act) return;
     clearTimeout(repeats[m.b]);
     delete repeats[m.b];
@@ -437,7 +551,7 @@ document.addEventListener("visibilitychange", stopRepeats);
 
 // ------------------------------------------------------------ manette (API Gamepad, secours)
 const pad = { held: {}, next: {} };
-function padLoop(t) {
+function padLoop(ts) {
   const gp = serverPads ? null : [...(navigator.getGamepads ? navigator.getGamepads() : [])].find((g) => g && g.connected);
   if (gp && !state.running && document.hasFocus()) {
     const b = (i) => gp.buttons[i] && gp.buttons[i].pressed;
@@ -449,17 +563,17 @@ function padLoop(t) {
     const act = { a: b(0), b: b(1), x: b(2), y: b(3), lb: b(4), rb: b(5), start: b(9), select: b(8) };
     const fire = (name, on, fn, repeat) => {
       if (!on) { pad.held[name] = false; return; }
-      if (!pad.held[name]) { pad.held[name] = true; pad.next[name] = t + 380; fn(); }
-      else if (repeat && t >= pad.next[name]) { pad.next[name] = t + 95; fn(); }
+      if (!pad.held[name]) { pad.held[name] = true; pad.next[name] = ts + 380; fn(); }
+      else if (repeat && ts >= pad.next[name]) { pad.next[name] = ts + 95; fn(); }
     };
-    const run = (name) => () => (osk.open ? oskHandle(name) : PAD_ACTIONS[name][0]());
+    const run = (name) => () => { const over = overlayHandler(); return over ? over(name) : PAD_ACTIONS[name][0](); };
     for (const [name, on] of Object.entries(dirs)) fire(name, on, run(name), true);
-    for (const [name, on] of Object.entries(act)) fire(name, on, run(name), !!PAD_ACTIONS[name][1] || (osk.open && OSK_REPEAT.has(name)));
+    for (const [name, on] of Object.entries(act)) fire(name, on, run(name), !!PAD_ACTIONS[name][1] || (!!overlayHandler() && OSK_REPEAT.has(name)));
   }
   requestAnimationFrame(padLoop);
 }
 requestAnimationFrame(padLoop);
-window.addEventListener("gamepadconnected", () => toast("Manette détectée"));
+window.addEventListener("gamepadconnected", () => toast(t("padFound")));
 
 // ------------------------------------------------------------ divers
 let lastPointer = "mouse";
@@ -468,13 +582,15 @@ document.addEventListener("pointerdown", (e) => { lastPointer = e.pointerType; }
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function ago(ts) {
   const d = (Date.now() / 1000 - ts) / 86400;
-  if (d < 1) return "aujourd'hui";
-  if (d < 2) return "hier";
-  if (d < 30) return `il y a ${Math.floor(d)} jours`;
-  return new Date(ts * 1000).toLocaleDateString("fr-FR");
+  if (d < 1) return t("today");
+  if (d < 2) return t("yesterday");
+  if (d < 30) return t("daysAgo", Math.floor(d));
+  return new Date(ts * 1000).toLocaleDateString(t("locale"));
 }
 // ------------------------------------------------------------ synchro entre appareils
-function fmtSize(b) { return b > 1e9 ? (b / 1e9).toFixed(1).replace(".", ",") + " Go" : Math.max(1, Math.round(b / 1e6)) + " Mo"; }
+function fmtSize(b) {
+  return b > 1e9 ? (b / 1e9).toFixed(1).replace(".", t("dec")) + " " + t("gb") : Math.max(1, Math.round(b / 1e6)) + " " + t("mb");
+}
 async function loadSync() {
   const el = $("#sync");
   try {
@@ -482,25 +598,26 @@ async function loadSync() {
     const peers = Object.values(st.peers || {});
     if (!st.state || !peers.length) { el.classList.add("hidden"); return; }
     let txt;
-    if (st.state === "stopped") txt = "⇄ Synchro arrêtée";
+    if (st.state === "stopped") txt = t("syncStopped");
     else if (st.current) {
       const pct = st.current_size ? Math.floor((100 * st.current_done) / st.current_size) : 0;
       const n = peers.reduce((a, p) => a + (p.pending || 0), 0);
-      txt = `⇄ Copie depuis ${peers[0].name} : ${n} jeu${n > 1 ? "x" : ""} (${pct} %)`;
+      txt = t("syncCopy", peers[0].name, n, pct);
     } else {
       const off = peers.find((p) => !p.online && p.pending);
-      txt = off ? `⇄ ${off.name} éteint : ${off.pending} jeu${off.pending > 1 ? "x" : ""} en attente (${fmtSize(off.pending_bytes)})`
-                : "⇄ Bibliothèque à jour";
+      txt = off ? t("syncOff", off.name, off.pending, fmtSize(off.pending_bytes)) : t("syncOk");
     }
     el.textContent = txt;
     el.classList.remove("hidden");
   } catch (e) { el.classList.add("hidden"); }
 }
-loadSync();
-setInterval(loadSync, 5000);
 
-function tick() { $("#clock").textContent = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }); }
+function tick() { $("#clock").textContent = new Date().toLocaleTimeString(t("locale"), { hour: "2-digit", minute: "2-digit" }); }
+
+applyI18n();
 tick();
 setInterval(tick, 10000);
+loadSync();
+setInterval(loadSync, 5000);
 load();
 setInterval(load, 2000);

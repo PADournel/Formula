@@ -1,8 +1,9 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en" translate="no" class="notranslate">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="google" content="notranslate">
 <title>FORMULA</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;700;800;900&display=swap">
@@ -25,14 +26,16 @@
   </div>
   <nav id="nav"></nav>
   <div class="rail-bottom">
-    <button class="nav-item small" data-action="rescan"><i>⟳</i><span>Actualiser</span></button>
-    <button class="nav-item small" data-action="quit"><i>⏻</i><span>Quitter</span></button>
+    <button class="nav-item small" data-action="rescan"><i>⟳</i><span data-i18n="refresh"></span></button>
+    <button class="nav-item small" data-action="settings"><i>⚙</i><span data-i18n="settings"></span></button>
+    <button class="nav-item small" data-action="quit"><i>⏻</i><span data-i18n="quit"></span></button>
+    <div id="version"></div>
   </div>
 </aside>
 
 <main id="main">
   <header id="top">
-    <div class="search"><i>⌕</i><input id="search" placeholder="Rechercher un jeu" autocomplete="off" spellcheck="false"></div>
+    <div class="search"><i>⌕</i><input id="search" data-i18n-ph="search" autocomplete="off" spellcheck="false"></div>
     <button id="sort" class="chip"></button>
     <div class="spacer"></div>
     <div id="status" class="chip ghost hidden"></div>
@@ -44,53 +47,77 @@
     <div id="hero-cover"></div>
     <div id="hero-info">
       <div id="hero-tags"></div>
-      <h1 id="hero-title">Bibliothèque</h1>
+      <h1 id="hero-title"></h1>
       <div id="hero-meta"></div>
       <div id="hero-actions">
-        <button id="play" class="btn primary"><span class="tri"></span>Jouer</button>
-        <button id="fav" class="btn ghost">☆ Favori</button>
+        <button id="play" class="btn primary"><span class="tri"></span><span data-i18n="play"></span></button>
+        <button id="fav" class="btn ghost"></button>
       </div>
     </div>
   </section>
 
-  <div id="section-head"><h2 id="section-title">Tous les jeux</h2><span id="count"></span></div>
+  <div id="section-head"><h2 id="section-title"></h2><span id="count"></span></div>
   <section id="grid" tabindex="-1"></section>
   <div id="empty" class="hidden">
     <div class="empty-icon">◇</div>
-    <p>Aucun jeu ici pour l'instant.</p>
-    <small>Les jeux se rangent dans <code>~/Emulation/roms/&lt;console&gt;</code>, puis « Actualiser ».</small>
+    <p data-i18n="empty"></p>
+    <small data-i18n-html="emptyHint"></small>
   </div>
 </main>
 
 <footer id="hints">
-  <span><b class="pad a">A</b>Jouer</span>
-  <span><b class="pad y">Y</b>Favori</span>
-  <span><b class="pad x">X</b>Rechercher</span>
-  <span><b class="pad sh">LB</b><b class="pad sh">RB</b>Console</span>
-  <span><b class="pad sh">☰</b>Trier</span>
-  <span><b class="pad b">B</b>Retour</span>
+  <span><b class="pad a">A</b><span data-i18n="play"></span></span>
+  <span><b class="pad y">Y</b><span data-i18n="favorite"></span></span>
+  <span><b class="pad x">X</b><span data-i18n="searchShort"></span></span>
+  <span><b class="pad sh">LB</b><b class="pad sh">RB</b><span data-i18n="console"></span></span>
+  <span><b class="pad sh">☰</b><span data-i18n="sort"></span></span>
+  <span><b class="pad sh">⧉</b><span data-i18n="settings"></span></span>
+  <span><b class="pad b">B</b><span data-i18n="back"></span></span>
 </footer>
 
 <div id="running" class="hidden">
   <div class="run-card">
     <div id="run-cover"></div>
     <div>
-      <div class="run-label">En cours</div>
+      <div class="run-label" data-i18n="running"></div>
       <div id="run-title"></div>
-      <div class="run-sub">Quitte le jeu depuis le menu de l'émulateur pour revenir ici.</div>
+      <div class="run-sub" data-i18n="runningHint"></div>
     </div>
   </div>
 </div>
+
 <div id="osk" class="hidden">
   <div class="osk-panel">
     <div class="osk-field"><i>⌕</i><span id="osk-text"></span><span class="caret"></span></div>
     <div id="osk-keys"></div>
     <div class="osk-hints">
-      <span><b class="pad a">A</b>Taper</span><span><b class="pad b">B</b>Effacer</span>
-      <span><b class="pad y">Y</b>Espace</span><span><b class="pad sh">☰</b>Valider</span><span><b class="pad x">X</b>Fermer</span>
+      <span><b class="pad a">A</b><span data-i18n="oskType"></span></span><span><b class="pad b">B</b><span data-i18n="oskErase"></span></span>
+      <span><b class="pad y">Y</b><span data-i18n="oskSpace"></span></span><span><b class="pad sh">☰</b><span data-i18n="oskDone"></span></span>
+      <span><b class="pad x">X</b><span data-i18n="close"></span></span>
     </div>
   </div>
 </div>
+
+<div id="settings" class="hidden">
+  <div class="set-panel">
+    <div class="set-head">
+      <h2 data-i18n="settings"></h2>
+      <button class="set-close" data-i18n-title="close">✕</button>
+    </div>
+    <section class="set-section">
+      <h3 data-i18n="language"></h3>
+      <p data-i18n="languageHint"></p>
+      <div class="set-options" id="set-lang">
+        <button class="set-opt" data-lang="en"><span class="flag">EN</span>English</button>
+        <button class="set-opt" data-lang="fr"><span class="flag">FR</span>Français</button>
+      </div>
+    </section>
+    <div class="osk-hints">
+      <span><b class="pad a">A</b><span data-i18n="choose"></span></span><span><b class="pad b">B</b><span data-i18n="close"></span></span>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="hidden"></div>
 <script src="app.js"></script>
 </body>
