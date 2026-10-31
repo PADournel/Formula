@@ -2,7 +2,7 @@
 
 Lanceur d'émulateurs façon bibliothèque Steam, pour Steam Deck et PC Windows.
 
-- Galerie des jeux avec jaquettes officielles (GameTDB, libretro, xlenore, aldostools), compressées en WebP.
+- Galerie des jeux avec jaquettes officielles (GameTDB, libretro, xlenore, aldostools, XboxUnity), compressées en WebP.
 - Tri par console (logos officiels), recherche avec clavier à l'écran, favoris, récents.
 - Navigation à la manette (la fenêtre au premier plan garde les commandes), souris et tactile.
 - Lance le bon émulateur en plein écran, langue française par défaut quand elle existe.
@@ -48,7 +48,7 @@ FORMULA ne fait rien en douce. Liste exhaustive de ce qu'il fait :
 
 **Ce qui sort sur Internet** (rien d'autre, aucune télémétrie, aucune statistique)
 - Jaquettes : `art.gametdb.com`, `thumbnails.libretro.com`, `raw.githubusercontent.com` (dépôts xlenore/ps2-covers et
-  aldostools/Resources), une seule fois par jeu, stockées ensuite en local.
+  aldostools/Resources), `xboxunity.net` (Xbox 360, recherche par identifiant du disque), une seule fois par jeu, stockées ensuite en local.
 - Installation d'un émulateur depuis Paramètres, uniquement quand tu coches la case : `api.github.com` et
   `github.com` (version officielle de l'émulateur), `dl.dolphin-emu.org`, ou Flathub sur le Deck.
 - La page elle-même est verrouillée par une politique de sécurité (CSP) : elle ne peut charger ou contacter

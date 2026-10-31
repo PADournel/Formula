@@ -303,6 +303,45 @@ def read_pbp(path):
         return parse_sfo(chunk(0)), chunk(1) or None, chunk(4) or None
 
 
+def xex_title_id(head):
+    """Identifiant de titre (8 chiffres hexa) d'un exécutable Xbox 360 (en-tête XEX2)."""
+    if head[:4] != b"XEX2":
+        return None
+    count = struct.unpack(">I", head[0x14:0x18])[0]
+    for i in range(min(count, 64)):
+        key, val = struct.unpack(">II", head[0x18 + 8 * i: 0x20 + 8 * i])
+        if key == 0x00040006 and val + 16 <= len(head):     # informations d'exécution
+            return "%08X" % struct.unpack(">I", head[val + 12: val + 16])[0]
+    return None
+
+
+def xbox360_title_id(path):
+    """Lit default.xex dans une image de disque Xbox 360 (système de fichiers XDVDFS) ou un .xex."""
+    with open(path, "rb") as f:
+        if path.suffix.lower() == ".xex":
+            return xex_title_id(f.read(0x10000))
+        # la partition de jeu commence à un décalage fixe selon le type de disque (XGD3, XGD2, XGD1, XISO)
+        for part in (0x2080000, 0xFD90000, 0x18300000, 0):
+            f.seek(part + 32 * 2048)
+            vd = f.read(28)
+            if vd[:20] != b"MICROSOFT*XBOX*MEDIA":
+                continue
+            root, rsize = struct.unpack("<II", vd[20:28])
+            f.seek(part + root * 2048)
+            table = f.read(min(rsize, 1 << 20))
+            stack = [0]
+            while stack:                 # arbre binaire d'entrées, positions en mots de 4 octets
+                p = stack.pop() * 4
+                if p + 14 > len(table) or table[p:p + 2] == b"\xff\xff":
+                    continue
+                left, right, sector, size, _, nlen = struct.unpack("<HHIIBB", table[p:p + 14])
+                if table[p + 14:p + 14 + nlen].lower() == b"default.xex":
+                    f.seek(part + sector * 2048)
+                    return xex_title_id(f.read(min(size, 0x10000)))
+                stack += [x for x in (left, right) if x]
+    return None
+
+
 def nintendo_disc_header(path):
     """ID (ex. RMCP01) et titre d'un disque GameCube/Wii : ISO/GCM, WBFS ou RVZ."""
     with open(path, "rb") as f:
@@ -423,6 +462,8 @@ def scan_file(sysid, path):
             g["title"] = title or g["title"]
             g["launch"] = str(path)
             return g
+        if sysid == "x360":
+            g["serial"] = xbox360_title_id(path)
         if sysid in ("gba", "nds") and ext in (".gba", ".nds"):
             with open(path, "rb") as f:
                 h = f.read(0x200)
@@ -625,6 +666,32 @@ def libretro_cover(system, title, region_hint=None):
     return http_get(url), ".png"
 
 
+def xboxunity_cover(title_id):
+    """Xbox 360 : jaquette par identifiant de titre sur XboxUnity (libretro n'en a qu'une douzaine).
+    Les images sont des jaquettes complètes (dos, tranche, face) : on garde la face, à droite."""
+    info = json.loads(http_get(f"https://xboxunity.net/Resources/Lib/CoverInfo.php?titleid={title_id}") or b"{}")
+    covers = sorted(info.get("Covers") or [], key=lambda c: (c.get("Official") != "1", -int(c.get("Rating") or 0)))
+    if not covers:
+        return None
+    data = http_get(f"https://xboxunity.net/Resources/Lib/Cover.php?size=large&cid={int(covers[0]['CoverID'])}", 40)
+    if not data:
+        return None
+    COVERS.mkdir(parents=True, exist_ok=True)
+    src, dst = COVERS / f"x360_{title_id}_full.jpg", COVERS / f"x360_{title_id}_front.png"
+    src.write_bytes(data)
+    try:
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
+                        "-vf", "crop=trunc(iw*0.469):ih:iw-trunc(iw*0.469):0", str(dst)],
+                       check=True, timeout=60, stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
+        return dst.read_bytes(), ".png"
+    except Exception as e:
+        print("recadrage impossible", title_id, e, file=sys.stderr)
+        return data, ".jpg"
+    finally:
+        src.unlink(missing_ok=True)
+        dst.unlink(missing_ok=True)
+
+
 def find_cover(g):
     sysid, serial = g["system"], g.get("serial")
     tries = []
@@ -636,6 +703,8 @@ def find_cover(g):
         # GameTDB : jaquettes officielles par ID de disque, en français si elles existent
         for reg in ("FR", "EN", "US", "JA"):
             tries.append(lambda reg=reg: (http_get(f"https://art.gametdb.com/wii/cover/{reg}/{serial}.png"), ".png"))
+    if sysid == "x360" and serial:
+        tries.append(lambda: xboxunity_cover(serial))
     lr = SYSTEMS.get(sysid, {}).get("libretro")
     if lr:
         tries.append(lambda: libretro_cover(lr, g["title"], g.get("region")))
