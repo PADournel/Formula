@@ -36,6 +36,18 @@ Pas de Xbox One : aucun émulateur public ne fait tourner ses jeux (XWine1 n'est
   Aucun fichier système nécessaire. Mode portable, contenu et sauvegardes dans `kDrive/Saves/Xbox 360`,
   Discord désactivé. Sur le Deck, Xenia est l'AppImage Linux officielle (expérimentale, Vulkan).
 
+### PCSX2 debug (jeux PS2 cassés par les PCSX2 récents)
+
+Certains jeux PS2 ne marchent plus avec les PCSX2 récents (Splashdown : la course ne démarre pas, pas d'eau).
+Ils sont listés par numéro de série dans `debug-games.json` (à la racine du dépôt) et FORMULA les lance avec
+PCSX2 1.7.3780, installé en même temps que le PCSX2 principal et désinstallé avec lui
+(`<base>\emulators\pcsx2-debug` sous Windows, AppImage officielle dans `~/Emulation/pcsx2-debug` sur le Deck).
+Il n'apparaît pas comme émulateur séparé. Pour ajouter un jeu, ajouter une ligne dans `debug-games.json` :
+`"SLUS-12345": {"title": "…", "renderer": "software"}` (renderer : `software` par défaut, `auto`, `vulkan`,
+`opengl`, `dx11`, `dx12`). À chaque lancement, FORMULA réécrit ses réglages : même BIOS, même manette, plein
+écran, renderer du jeu. Ses cartes mémoire sont à part (`kDrive/Saves/PS2/memcards-debug`, sauvegardes rapides
+dans `sstates-debug`) pour qu'une ancienne version n'écrive jamais dans les cartes du PCSX2 principal.
+
 ## Sécurité et transparence
 
 FORMULA ne fait rien en douce. Liste exhaustive de ce qu'il fait :
@@ -51,6 +63,7 @@ FORMULA ne fait rien en douce. Liste exhaustive de ce qu'il fait :
   aldostools/Resources), `xboxunity.net` (Xbox 360, recherche par identifiant du disque), une seule fois par jeu, stockées ensuite en local.
 - Installation d'un émulateur depuis Paramètres, uniquement quand tu coches la case : `api.github.com` et
   `github.com` (version officielle de l'émulateur), `dl.dolphin-emu.org`, ou Flathub sur le Deck.
+  Installer PCSX2 télécharge aussi PCSX2 1.7.3780 (PCSX2 debug) depuis `github.com/PCSX2/pcsx2/releases`.
 - La page elle-même est verrouillée par une politique de sécurité (CSP) : elle ne peut charger ou contacter
   que FORMULA. Les polices sont fournies avec l'application.
 - Sur PC, la fenêtre est `FORMULA.exe` (WebView2, le moteur web fourni avec Windows), pas un navigateur.

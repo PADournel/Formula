@@ -25,6 +25,9 @@ PYTHON_EMBED = "https://www.python.org/ftp/python/3.15.2/python-3.15.2-embed-amd
 EMULATORS = {
     "pcsx2": ("https://github.com/PCSX2/pcsx2/releases/download/v2.8.2/pcsx2-v2.8.2-windows-x64-Qt.7z",
               "pcsx2-qt.exe"),
+    # PCSX2 debug : ancienne version pour les jeux de debug-games.json (réglée par formula.py au lancement)
+    "pcsx2-debug": ("https://github.com/PCSX2/pcsx2/releases/download/v1.7.3780/"
+                    "pcsx2-v1.7.3780-windows-64bit-AVX2-Qt.7z", "pcsx2-qtx64-avx2.exe"),
     "ppsspp": ("https://github.com/hrydgard/ppsspp/releases/download/v1.20.4/PPSSPP-v1.20.4-Windows-x64.zip",
                "PPSSPPWindows64.exe"),
     "rpcs3": ("https://github.com/RPCS3/rpcs3-binaries-win/releases/download/"
