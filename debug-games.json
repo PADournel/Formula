@@ -1,0 +1,7 @@
+{
+  "_info": "Jeux lancés avec le PCSX2 debug (1.7.3780) au lieu du PCSX2 principal. Clé = numéro de série du jeu (visible dans FORMULA). renderer : software (par défaut), auto, vulkan, opengl, dx11, dx12.",
+  "ps2": {
+    "SLES-50486": {"title": "Splashdown (Europe) v2.00", "renderer": "software"},
+    "SLUS-20223": {"title": "Splashdown (USA) v2.01", "renderer": "software"}
+  }
+}

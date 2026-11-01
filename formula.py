@@ -182,6 +182,110 @@ def resolve_exe(path):
     found = sorted(EMU.glob(str(p.relative_to(EMU)).replace("\\", "/")))
     return found[-1] if found else None
 
+
+# ---------------------------------------------------------------- PCSX2 debug
+# Certains jeux sont cassés par une régression des PCSX2 récents (Splashdown : la course ne démarre pas,
+# pas d'eau). Ils sont listés dans debug-games.json et lancés avec un ancien PCSX2 fixé, installé en même
+# temps que le PCSX2 principal (il n'apparaît pas comme émulateur séparé).
+PCSX2_DEBUG = {
+    "version": "1.7.3780",
+    "win": {"dir": "pcsx2-debug", "exe": "pcsx2-qtx64-avx2.exe",
+            "url": "https://github.com/PCSX2/pcsx2/releases/download/v1.7.3780/"
+                   "pcsx2-v1.7.3780-windows-64bit-AVX2-Qt.7z"},
+    "appimage": {"dir": "pcsx2-debug", "file": "pcsx2-debug.AppImage",
+                 "url": "https://github.com/PCSX2/pcsx2/releases/download/v1.7.3780/"
+                        "pcsx2-v1.7.3780-linux-AppImage-64bit-AVX2-Qt.AppImage"},
+}
+DEBUG_GAMES_FILE = APP_DIR / "debug-games.json"
+GS_RENDERERS = {"auto": -1, "dx11": 3, "opengl": 12, "software": 13, "vulkan": 14, "dx12": 15}
+# PCSX2 1.7 nomme les boutons de façade A/B/X/Y (FaceSouth… depuis la 2.0)
+PCSX2_DEBUG_PAD = {
+    "Type": "DualShock2", "Up": "SDL-0/DPadUp", "Right": "SDL-0/DPadRight", "Down": "SDL-0/DPadDown",
+    "Left": "SDL-0/DPadLeft", "Select": "SDL-0/Back", "Start": "SDL-0/Start", "L1": "SDL-0/LeftShoulder",
+    "L2": "SDL-0/+LeftTrigger", "R1": "SDL-0/RightShoulder", "R2": "SDL-0/+RightTrigger", "L3": "SDL-0/LeftStick",
+    "R3": "SDL-0/RightStick", "LUp": "SDL-0/-LeftY", "LRight": "SDL-0/+LeftX", "LDown": "SDL-0/+LeftY",
+    "LLeft": "SDL-0/-LeftX", "RUp": "SDL-0/-RightY", "RRight": "SDL-0/+RightX", "RDown": "SDL-0/+RightY",
+    "RLeft": "SDL-0/-RightX", "LargeMotor": "SDL-0/LargeMotor", "SmallMotor": "SDL-0/SmallMotor",
+    "Triangle": "SDL-0/Y", "Circle": "SDL-0/B", "Cross": "SDL-0/A", "Square": "SDL-0/X",
+}
+
+
+def pcsx2_debug_dir():
+    return EMU / PCSX2_DEBUG["win"]["dir"] if IS_WIN else HOME / "Emulation" / PCSX2_DEBUG["appimage"]["dir"]
+
+
+def pcsx2_debug_exe():
+    if IS_WIN:
+        return pcsx2_debug_dir() / PCSX2_DEBUG["win"]["exe"]
+    return pcsx2_debug_dir() / PCSX2_DEBUG["appimage"]["file"]
+
+
+def debug_game(g):
+    """Réglages debug d'un jeu (dict) s'il est inscrit dans debug-games.json, sinon None."""
+    try:
+        games = json.loads(DEBUG_GAMES_FILE.read_text(encoding="utf-8")).get(g["system"], {})
+    except Exception:
+        return None
+    entry = games.get(g.get("serial") or "")
+    return entry if isinstance(entry, dict) else None
+
+
+def ini_update(path, section, values):
+    """Écrit des clés dans une section d'un .ini façon PCSX2 (« clé = valeur »), sans toucher au reste."""
+    path = Path(path)
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    start = next((i for i, l in enumerate(lines) if l.strip() == f"[{section}]"), None)
+    if start is None:
+        lines += ([""] if lines else []) + [f"[{section}]"]
+        start = len(lines) - 1
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("[")), len(lines))
+    todo = {k: str(v) for k, v in values.items()}
+    for i in range(start + 1, end):
+        k = lines[i].split("=", 1)[0].strip()
+        if k in todo:
+            lines[i] = f"{k} = {todo.pop(k)}"
+    while end > start + 1 and not lines[end - 1].strip():
+        end -= 1
+    lines[end:end] = [f"{k} = {v}" for k, v in todo.items()]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def pcsx2_debug_configure(renderer="software"):
+    """Réglages du PCSX2 debug, réécrits à chaque lancement : même BIOS et même manette que le PCSX2
+    principal, cartes mémoire séparées (dans kDrive) pour qu'une vieille version n'écrive jamais dans les
+    cartes du PCSX2 principal."""
+    d = pcsx2_debug_dir()
+    saves = HOME / "kDrive" / "Saves" / "PS2"
+    if IS_WIN:
+        (d / "portable.ini").write_text("RunWizard=0\n", encoding="utf-8")
+        ini, bios = d / "inis" / "PCSX2.ini", BASE / "bios" / "ps2"
+    else:
+        # l'AppImage ne peut pas être portable : réglages isolés via XDG_CONFIG_HOME (voir pcsx2_debug_cmd)
+        ini, bios = d / "config" / "PCSX2" / "inis" / "PCSX2.ini", HOME / "Emulation" / "bios" / "ps2"
+    ini_update(ini, "UI", {"SettingsVersion": 1, "SetupWizardIncomplete": "false", "StartFullscreen": "true",
+                           "ConfirmShutdown": "false", "HideMouseCursor": "true"})
+    ini_update(ini, "Folders", {"Bios": bios, "MemoryCards": saves / "memcards-debug",
+                                "Savestates": saves / "sstates-debug"})
+    if (bios / "SCPH-70004_BIOS_V12_PAL_200.BIN").exists():   # même BIOS que le PCSX2 principal
+        ini_update(ini, "Filenames", {"BIOS": "SCPH-70004_BIOS_V12_PAL_200.BIN"})
+    ini_update(ini, "GameList", {"RecursivePaths": ROMS / "ps2"})
+    ini_update(ini, "AutoUpdater", {"CheckAtStartup": "false"})
+    ini_update(ini, "EmuCore/GS", {"Renderer": GS_RENDERERS.get(str(renderer).lower(), 13)})
+    ini_update(ini, "InputSources", {"SDL": "true", "SDLControllerEnhancedMode": "false"})
+    ini_update(ini, "Pad1", PCSX2_DEBUG_PAD)
+    ini_update(ini, "Hotkeys", {"OpenPauseMenu": "SDL-0/Back & SDL-0/Start",
+                                "ToggleFullscreen": "Keyboard/Alt & Keyboard/Return"})
+
+
+def pcsx2_debug_cmd(path):
+    """Commande, dossier et environnement pour lancer un jeu avec le PCSX2 debug."""
+    env = {}
+    if not IS_WIN:
+        env = {"QT_QPA_PLATFORM": "xcb", "XDG_CONFIG_HOME": str(pcsx2_debug_dir() / "config")}
+    return [str(pcsx2_debug_exe()), "-batch", "-nogui", "-fullscreen", "--", path], str(pcsx2_debug_dir()), env
+
+
 _extra = (DATA if IS_WIN else HOME / ".config" / "formula") / "systems.json"
 if _extra.exists():
     try:
@@ -775,7 +879,15 @@ class Runner:
         s = SYSTEMS[g["system"]]
         cmd = [c.replace("{path}", g["launch"]) for c in s["cmd"]]
         cwd = s.get("cwd")
-        if IS_WIN:
+        dbg = debug_game(g) if g["system"] == "ps2" else None
+        if dbg:
+            # jeu inscrit dans debug-games.json : ancien PCSX2 (voir PCSX2_DEBUG)
+            if not pcsx2_debug_exe().exists():
+                return False, "Émulateur non installé"
+            pcsx2_debug_configure(dbg.get("renderer", "software"))
+            cmd, cwd, extra_env = pcsx2_debug_cmd(g["launch"])
+            s = dict(s, env=dict(s.get("env", {}), **extra_env))
+        elif IS_WIN:
             exe = resolve_exe(cmd[0])
             if not exe:
                 return False, "Émulateur non installé"
@@ -1128,6 +1240,8 @@ class EmuManager:
                 self.cache[key] = f.stat().st_size if f.exists() else 0
             else:
                 self.cache[key] = dir_size(self.root(e))
+            if e["id"] == "pcsx2" and pcsx2_debug_dir().exists():   # PCSX2 debug compté avec le principal
+                self.cache[key] += dir_size(pcsx2_debug_dir())
         return self.cache[key]
 
     def listing(self):
@@ -1188,6 +1302,8 @@ class EmuManager:
     def _run(self, e, action):
         try:
             (self._install if action == "install" else self._uninstall)(e)
+            if e["id"] == "pcsx2":     # le PCSX2 debug suit toujours le PCSX2 principal
+                (self._install_pcsx2_debug if action == "install" else self._uninstall_pcsx2_debug)(e)
             self.jobs.pop(e["id"], None)
         except Exception as ex:
             self.jobs[e["id"]] = {"state": "error", "error": str(ex)}
@@ -1256,6 +1372,26 @@ class EmuManager:
         else:
             subprocess.run(["flatpak", "install", "--user", "-y", "--noninteractive", "flathub", e["flatpak"]],
                            check=True, capture_output=True, timeout=3600)
+
+    def _install_pcsx2_debug(self, e):
+        d = pcsx2_debug_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        if IS_WIN:
+            arc = d / "_download.7z"
+            self._download(e, PCSX2_DEBUG["win"]["url"], arc)
+            subprocess.run([r"C:\Windows\System32\tar.exe", "-xf", str(arc), "-C", str(d)], check=True,
+                           creationflags=NO_WINDOW)
+            arc.unlink(missing_ok=True)
+        else:
+            self._download(e, PCSX2_DEBUG["appimage"]["url"], pcsx2_debug_exe())
+            os.chmod(pcsx2_debug_exe(), 0o755)
+        (d / ".formula-version").write_text(PCSX2_DEBUG["version"], encoding="utf-8")
+        pcsx2_debug_configure()
+
+    def _uninstall_pcsx2_debug(self, e):
+        import shutil
+        # les cartes mémoire et sauvegardes rapides sont dans kDrive : rien à protéger ici
+        shutil.rmtree(pcsx2_debug_dir(), ignore_errors=True)
 
     def _uninstall(self, e):
         if IS_WIN:
