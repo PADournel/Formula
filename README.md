@@ -21,7 +21,7 @@ Numérotation `MAJEUR.MINEUR.CORRECTIF`, correctif sur 3 chiffres (ex. `0.2.000`
 La version est dans le fichier `VERSION`, affichée en bas à gauche de l'application,
 et chaque publication reçoit une étiquette `windows-vX.Y.ZZZ` ou `linux-vX.Y.ZZZ`.
 
-Consoles : PS2 (PCSX2), PSP (PPSSPP), PS3 (RPCS3), PS4 (shadPS4), NES (Nestopia), N64 (RMG),
+Consoles : PS2 (PCSX2), PSP (PPSSPP), PS Vita (Vita3K), PS3 (RPCS3), PS4 (shadPS4), NES (Nestopia), N64 (RMG),
 GBA (mGBA), DS (melonDS), GameCube et Wii (Dolphin), Xbox (xemu), Xbox 360 (Xenia Canary).
 Pas de Xbox One : aucun émulateur public ne fait tourner ses jeux (XWine1 n'est pas téléchargeable).
 
@@ -35,6 +35,12 @@ Pas de Xbox One : aucun émulateur public ne fait tourner ses jeux (XWine1 n'est
 - Xbox 360 (Xenia Canary) : `.iso`, `.zar`, ou jeu extrait (dossier contenant `default.xex`) dans `roms/x360`.
   Aucun fichier système nécessaire. Mode portable, contenu et sauvegardes dans `kDrive/Saves/Xbox 360`,
   Discord désactivé. Sur le Deck, Xenia est l'AppImage Linux officielle (expérimentale, Vulkan).
+- PS Vita (Vita3K) : `.vpk` ou jeu décompressé (dossier contenant `sce_sys/param.sfo` et `eboot.bin`) dans
+  `roms/psvita`. Vita3K installe le jeu au premier lancement puis le lance directement. Le firmware officiel
+  (`PSVUPDAT.PUP` et `PSP2UPDAT.PUP`, téléchargeables gratuitement chez Sony) se place dans `bios/psvita` (PC) ou
+  `~/Emulation/bios/psvita` (Deck) : FORMULA l'installe dans Vita3K, sans fenêtre, avant le premier jeu.
+  Mode portable (dossier `portable` à côté de l'émulateur), console en français, sauvegardes dans `kDrive/Saves/PSVita`,
+  Discord et recherche de mises à jour désactivés. Version publiée en continu : elle est repérée par sa date.
 
 ### PCSX2 debug (jeux PS2 cassés par les PCSX2 récents)
 
@@ -66,12 +72,20 @@ FORMULA ne fait rien en douce. Liste exhaustive de ce qu'il fait :
   Installer PCSX2 télécharge aussi PCSX2 1.7.3780 (PCSX2 debug) depuis `github.com/PCSX2/pcsx2/releases`.
 - La page elle-même est verrouillée par une politique de sécurité (CSP) : elle ne peut charger ou contacter
   que FORMULA. Les polices sont fournies avec l'application.
-- Le navigateur (Edge sur PC, Chromium sur le Deck) est lancé sans synchro de compte, sans tâches de fond
-  réseau et sans mises à jour de composants (navigation privée sur PC).
+- Sur PC, la fenêtre est `FORMULA.exe` (WebView2, le moteur web fourni avec Windows), pas un navigateur.
+  Elle n'affiche que `http://127.0.0.1:47800/` : toute autre adresse, nouvelle fenêtre, téléchargement ou
+  permission (caméra, micro, notifications…) est refusée, et les outils de développement, menus, zoom,
+  remplissage automatique et SmartScreen sont désactivés. Lancée sans synchro de compte, sans tâches de fond
+  réseau et sans mises à jour de composants. La page ne peut envoyer à la fenêtre que deux messages,
+  `fullscreen:1` et `fullscreen:0` (réglage Affichage, F11) ; tout autre message est ignoré.
+  Si WebView2 ne démarre pas, FORMULA demande (Oui/Non) avant
+  d'ouvrir Edge en mode application et navigation privée à la place.
+- Sur le Deck, la fenêtre est Chromium en mode application, avec les mêmes restrictions de lancement.
 
 **Ce qui est lancé** (toujours sans fenêtre de console)
 - L'émulateur du jeu choisi ; `ffmpeg` pour compresser les jaquettes ; `tar` (Windows) ou `flatpak` (Deck)
-  quand tu installes ou désinstalles un émulateur ; le navigateur de l'interface ; le service de synchro.
+  quand tu installes ou désinstalles un émulateur ; la fenêtre de l'interface (sur PC, `FORMULA.exe` lance le
+  serveur `pythonw formula.py --host` et l'arrête en se fermant) ; le service de synchro.
 
 **Ce qui est écrit sur le disque**
 - Le dossier de données (`<base>` sous Windows, `~/Emulation` et `~/.local/share/formula` sur le Deck),
@@ -95,7 +109,11 @@ Le dépôt ne contient que le code. Les données lourdes vivent ailleurs :
 ## Lancer
 
 - Deck : `formula.sh` (raccourci Steam « FORMULA », qui donne la manette Steam Input aux émulateurs).
-- Windows : `<base>\python\pythonw.exe formula.py --window`.
+- Windows : `<base>\FORMULA.exe` (raccourci du bureau et raccourci Steam « FORMULA »). S'ouvre en fenêtre
+  redimensionnable (2/3 de l'écran, centrée) ; Paramètres → Affichage ou F11 passe en plein écran, et ce choix
+  est gardé (`settings.json`). `formula.py --window` reste accepté et ouvre `FORMULA.exe`.
+- Taille des jaquettes : curseur −/+ en bas à droite, LT / RT à la manette ou `-` / `+` au clavier
+  (pas de 10 %, de 50 à 200 %).
 - Synchro : `formula.py --sync` (service systemd `formula-sync` sur le Deck, raccourci « FORMULA synchro » sous Windows).
   Réglages dans `sync.json` du dossier de données : nom de l'appareil, jeton partagé, adresses des autres appareils.
 
@@ -106,17 +124,22 @@ python tools\install_windows.py G:\Jeux\FORMULA
 ```
 
 Télécharge Python (embarqué) et les émulateurs depuis leurs sites officiels (versions fixées dans le script),
-crée l'arborescence, configure les émulateurs et crée le raccourci du bureau. Relançable ; `--update`
-réinstalle les émulateurs. Le BIOS PS2 (`bios\ps2`), le firmware PS3 (`bios\ps3`) et les fichiers Xbox (`bios\xbox`)
-ne sont pas fournis : ce sont des fichiers Sony et Microsoft à extraire de sa propre console. Ils ne doivent pas être
-ajoutés au dépôt, pas plus que les jeux.
+crée l'arborescence, configure les émulateurs, compile `FORMULA.exe` et crée le raccourci du bureau.
+Relançable ; `--update` réinstalle les émulateurs ; `--host-only` recompile seulement `FORMULA.exe`.
+
+`FORMULA.exe` est compilé sur place à partir de `tools/winhost/FormulaHost.cs` avec le compilateur C# fourni avec
+Windows (`csc.exe`, .NET Framework 4) et les bibliothèques WebView2 officielles de Microsoft (paquet NuGet
+`Microsoft.Web.WebView2`, version fixée dans le script). Ses DLL sont dans `<base>\host`, son profil web dans
+`<base>\formula-data\webview2`, et il lit le dossier du code dans `<base>\formula-data\code-dir.txt`. Le BIOS PS2 (`bios\ps2`), le firmware PS3 (`bios\ps3`), le firmware PS Vita (`bios\psvita`) et les fichiers Xbox (`bios\xbox`) ne sont pas fournis :
+ce sont des fichiers Sony et Microsoft à extraire de sa propre console. Ils ne doivent pas être ajoutés au dépôt, pas plus que les jeux.
 
 ## Outils
 
 - `tools/install_windows.py` : installation complète (voir ci-dessus).
 - `tools/setup_windows.py` : configure les émulateurs Windows (mode portable, manettes, français, sauvegardes kDrive),
   à partir des modèles de `tools/templates`.
-- `tools/steam_shortcut.py` : ajoute FORMULA aux jeux non-Steam avec ses visuels.
+- `tools/steam_shortcut.py` : ajoute FORMULA (`FORMULA.exe`) aux jeux non-Steam avec ses visuels.
+- `tools/winhost/` : source de la fenêtre Windows `FORMULA.exe`.
 
 ## Ajouter une console
 
