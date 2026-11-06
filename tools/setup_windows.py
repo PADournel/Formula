@@ -238,8 +238,17 @@ def xenia():
     ini_set(d / "xenia-canary.config.toml", "Display", {"fullscreen": "true"})
 
 
+def vita3k():
+    """Vita3K (PS Vita) : mode portable, français, sauvegardes dans kDrive (réglages faits par formula.py)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("formula", _REPO / "formula.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.vita_configure(EMU / "vita3k" / "portable")
+
+
 if __name__ == "__main__":
-    for f in (pcsx2, ppsspp, rpcs3, shadps4, mgba, melonds, dolphin, rmg, xemu, xenia):
+    for f in (pcsx2, ppsspp, rpcs3, shadps4, mgba, melonds, dolphin, rmg, xemu, xenia, vita3k):
         try:
             f()
             print("ok", f.__name__)

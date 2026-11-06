@@ -46,11 +46,13 @@ EMULATORS = {
     "dolphin": ("https://dl.dolphin-emu.org/releases/2609a/dolphin-2609a-x64.7z", "Dolphin-x64/Dolphin.exe"),
     "xemu": ("https://github.com/xemu-project/xemu/releases/download/v0.8.139/xemu-0.8.139-windows-x86_64.zip",
              "xemu.exe"),
+    # Vita3K : version publiée en continu
+    "vita3k": ("https://github.com/Vita3K/Vita3K/releases/download/continuous/windows-latest.zip", "Vita3K.exe"),
     # Xenia Canary : versions nommées par commit (pas de numéro dans l'adresse)
     "xenia": ("https://github.com/xenia-canary/xenia-canary/releases/download/48b318a/xenia_canary_windows.7z",
               "xenia_canary.exe"),
 }
-CONSOLES = ["ps2", "psp", "ps3", "ps4", "nes", "n64", "gba", "nds", "gc", "wii", "xbox", "x360"]
+CONSOLES = ["ps2", "psp", "psvita", "ps3", "ps4", "nes", "n64", "gba", "nds", "gc", "wii", "xbox", "x360"]
 
 # fenêtre FORMULA.exe : bibliothèques WebView2 officielles (NuGet Microsoft), compilées avec csc.exe de Windows
 WEBVIEW2 = "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.4314.35"
@@ -117,7 +119,7 @@ def main():
         desktop_shortcut(base)
         return
     dl = base / "_downloads"
-    for d in ["emulators", "formula-data", "bios/ps2", "bios/ps3", "bios/xbox", "_downloads"] + [f"roms/{c}" for c in CONSOLES]:
+    for d in ["emulators", "formula-data", "bios/ps2", "bios/ps3", "bios/psvita", "bios/xbox", "_downloads"] + [f"roms/{c}" for c in CONSOLES]:
         (base / d).mkdir(parents=True, exist_ok=True)
     (REPO / "formula-base.txt").write_text(str(base) + "\n", encoding="utf-8")
 

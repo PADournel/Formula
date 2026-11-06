@@ -21,7 +21,7 @@ Numérotation `MAJEUR.MINEUR.CORRECTIF`, correctif sur 3 chiffres (ex. `0.2.000`
 La version est dans le fichier `VERSION`, affichée en bas à gauche de l'application,
 et chaque publication reçoit une étiquette `windows-vX.Y.ZZZ` ou `linux-vX.Y.ZZZ`.
 
-Consoles : PS2 (PCSX2), PSP (PPSSPP), PS3 (RPCS3), PS4 (shadPS4), NES (Nestopia), N64 (RMG),
+Consoles : PS2 (PCSX2), PSP (PPSSPP), PS Vita (Vita3K), PS3 (RPCS3), PS4 (shadPS4), NES (Nestopia), N64 (RMG),
 GBA (mGBA), DS (melonDS), GameCube et Wii (Dolphin), Xbox (xemu), Xbox 360 (Xenia Canary).
 Pas de Xbox One : aucun émulateur public ne fait tourner ses jeux (XWine1 n'est pas téléchargeable).
 
@@ -35,6 +35,12 @@ Pas de Xbox One : aucun émulateur public ne fait tourner ses jeux (XWine1 n'est
 - Xbox 360 (Xenia Canary) : `.iso`, `.zar`, ou jeu extrait (dossier contenant `default.xex`) dans `roms/x360`.
   Aucun fichier système nécessaire. Mode portable, contenu et sauvegardes dans `kDrive/Saves/Xbox 360`,
   Discord désactivé. Sur le Deck, Xenia est l'AppImage Linux officielle (expérimentale, Vulkan).
+- PS Vita (Vita3K) : `.vpk` ou jeu décompressé (dossier contenant `sce_sys/param.sfo` et `eboot.bin`) dans
+  `roms/psvita`. Vita3K installe le jeu au premier lancement puis le lance directement. Le firmware officiel
+  (`PSVUPDAT.PUP` et `PSP2UPDAT.PUP`, téléchargeables gratuitement chez Sony) se place dans `bios/psvita` (PC) ou
+  `~/Emulation/bios/psvita` (Deck) : FORMULA l'installe dans Vita3K, sans fenêtre, avant le premier jeu.
+  Mode portable (dossier `portable` à côté de l'émulateur), console en français, sauvegardes dans `kDrive/Saves/PSVita`,
+  Discord et recherche de mises à jour désactivés. Version publiée en continu : elle est repérée par sa date.
 
 ### PCSX2 debug (jeux PS2 cassés par les PCSX2 récents)
 
@@ -124,7 +130,7 @@ Relançable ; `--update` réinstalle les émulateurs ; `--host-only` recompile s
 `FORMULA.exe` est compilé sur place à partir de `tools/winhost/FormulaHost.cs` avec le compilateur C# fourni avec
 Windows (`csc.exe`, .NET Framework 4) et les bibliothèques WebView2 officielles de Microsoft (paquet NuGet
 `Microsoft.Web.WebView2`, version fixée dans le script). Ses DLL sont dans `<base>\host`, son profil web dans
-`<base>\formula-data\webview2`, et il lit le dossier du code dans `<base>\formula-data\code-dir.txt`. Le BIOS PS2 (`bios\ps2`), le firmware PS3 (`bios\ps3`) et les fichiers Xbox (`bios\xbox`) ne sont pas fournis :
+`<base>\formula-data\webview2`, et il lit le dossier du code dans `<base>\formula-data\code-dir.txt`. Le BIOS PS2 (`bios\ps2`), le firmware PS3 (`bios\ps3`), le firmware PS Vita (`bios\psvita`) et les fichiers Xbox (`bios\xbox`) ne sont pas fournis :
 ce sont des fichiers Sony et Microsoft à extraire de sa propre console. Ils ne doivent pas être ajoutés au dépôt, pas plus que les jeux.
 
 ## Outils

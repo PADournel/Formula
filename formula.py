@@ -77,6 +77,16 @@ SYSTEMS = {
         "cmd": ["flatpak", "run", "--user", "--env=SDL_VIDEO_DRIVER=x11", "org.ppsspp.PPSSPP", "--fullscreen", "{path}"],
         "libretro": "Sony - PlayStation Portable",
     },
+    "psvita": {
+        "name": "PlayStation Vita", "short": "Vita", "order": 3.5,
+        # .vpk (archive d'installation) ou dossier de jeu décompressé (sce_sys/param.sfo + eboot.bin).
+        # Vita3K installe le jeu au premier lancement, puis le lance directement par son identifiant.
+        "exts": [".vpk"], "folders": True,
+        "cmd": [str(HOME / "Emulation/psvita/Vita3K-x86_64.AppImage"), "{path}"],
+        "cwd": str(HOME / "Emulation/psvita"),
+        "env": {"SDL_VIDEO_DRIVER": "x11", "SDL_VIDEODRIVER": "x11", "SDL_JOYSTICK_HIDAPI": "0"},
+        "libretro": "Sony - PlayStation Vita",
+    },
     "ps3": {
         "name": "PlayStation 3", "short": "PS3", "order": 4,
         "exts": [".iso"], "folders": True,
@@ -159,6 +169,7 @@ if IS_WIN:
         "ps2": ("pcsx2/pcsx2-qt.exe", ["-batch", "-nogui", "-fullscreen", "--", "{path}"]),
         "psp": ("ppsspp/PPSSPPWindows64.exe", ["--fullscreen", "{path}"]),
         "ps3": ("rpcs3/rpcs3.exe", ["--no-gui", "{path}"]),
+        "psvita": ("vita3k/Vita3K.exe", ["{path}"]),
         "ps4": ("shadps4/shadPS4.exe", ["-g", "{path}", "--fullscreen", "true"]),
         "nes": ("nestopia/nestopia.exe", ["-f", "{path}"]),
         "n64": ("rmg/RMG.exe", ["--fullscreen", "--nogui", "--quit-after-emulation", "{path}"]),
@@ -568,6 +579,16 @@ def scan_file(sysid, path):
             return g
         if sysid == "x360":
             g["serial"] = xbox360_title_id(path)
+        if sysid == "psvita" and ext == ".vpk":
+            import zipfile
+            with zipfile.ZipFile(path) as z:
+                names = {n.lower(): n for n in z.namelist()}
+                rd = lambda n: z.read(names[n]) if n in names else None
+                sfo = parse_sfo(rd("sce_sys/param.sfo"))
+                g["title"] = sfo.get("TITLE") or g["title"]
+                g["serial"] = sfo.get("TITLE_ID")
+                g["icon"] = save_asset(gid, "icon", rd("sce_sys/icon0.png"))
+                g["hero"] = save_asset(gid, "hero", rd("sce_sys/pic0.png") or rd("sce_sys/livearea/contents/bg.png"))
         if sysid in ("gba", "nds") and ext in (".gba", ".nds"):
             with open(path, "rb") as f:
                 h = f.read(0x200)
@@ -626,6 +647,16 @@ def scan_folder(sysid, path):
         for kind, fn in (("icon", "ICON0.PNG"), ("hero", "PIC1.PNG")):
             if (base / fn).exists():
                 g[kind] = save_asset(gid, kind, (base / fn).read_bytes())
+    elif sysid == "psvita":
+        sfo_p = path / "sce_sys" / "param.sfo"
+        if not sfo_p.exists() or not (path / "eboot.bin").exists():
+            return None
+        sfo = parse_sfo(sfo_p.read_bytes())
+        g["serial"] = sfo.get("TITLE_ID")
+        g["launch"] = str(path)
+        for kind, rel in (("icon", "icon0.png"), ("hero", "pic0.png"), ("hero", "livearea/contents/bg.png")):
+            if not g.get(kind) and (path / "sce_sys" / rel).exists():
+                g[kind] = save_asset(gid, kind, (path / "sce_sys" / rel).read_bytes())
     elif sysid == "ps4":
         sfo_p = path / "sce_sys" / "param.sfo"
         eboot = path / "eboot.bin"
@@ -894,6 +925,10 @@ class Runner:
             cmd[0], cwd = str(exe), str(exe.parent)
         elif not EMUS.installed(EMUS.for_system(g["system"])):
             return False, "Émulateur non installé"
+        if g["system"] == "psvita":
+            ok, msg = vita_prepare(cmd, g)
+            if not ok:
+                return False, msg
         # Fenêtres X11 (XWayland) : en mode Bureau, Steam ne reconnaît pas une fenêtre Wayland native
         # comme le jeu en cours et applique alors la config manette « Bureau » (souris/clavier).
         env = dict(os.environ, **s.get("env", {}))
@@ -1160,12 +1195,83 @@ EMULATORS = [
     {"id": "xemu", "name": "xemu", "systems": ["xbox"], "flatpak": "app.xemu.xemu",
      "win": {"dir": "xemu", "exe": "xemu.exe", "repo": "xemu-project/xemu", "asset": r"^xemu-[\d.]+-windows-x86_64\.zip$"}},
     # Xenia Canary : versions nommées par commit ; AppImage officielle sous Linux
+    # Vita3K : publié en continu (pas de numéro de version, la date de la version sert de repère)
+    {"id": "vita3k", "name": "Vita3K", "systems": ["psvita"],
+     "appimage": {"repo": "Vita3K/Vita3K", "asset": r"^Vita3K-x86_64\.AppImage$", "file": "Vita3K-x86_64.AppImage",
+                  "dir": "psvita"},
+     "win": {"dir": "vita3k", "exe": "Vita3K.exe", "repo": "Vita3K/Vita3K", "asset": r"^windows-latest\.zip$"}},
     {"id": "xenia", "name": "Xenia Canary", "systems": ["x360"],
      "appimage": {"repo": "xenia-canary/xenia-canary", "asset": r"linux\.AppImage$", "file": "xenia_canary.AppImage",
                   "dir": "x360"},
      "win": {"dir": "xenia", "exe": "xenia_canary.exe", "repo": "xenia-canary/xenia-canary", "asset": r"windows\.7z$"}},
 ]
 FLATPAK_APPS = HOME / ".local/share/flatpak/app"
+
+
+# ---------------------------------------------------------------- PS Vita (Vita3K)
+# Mode portable : un dossier « portable » à côté de l'exécutable (Windows) ou de l'AppImage (Deck)
+# contient tout (firmware installé, jeux installés, réglages). Les sauvegardes vont dans kDrive.
+# Le firmware officiel (PSVUPDAT.PUP + PSP2UPDAT.PUP, gratuits chez Sony) se place dans bios/psvita ;
+# FORMULA l'installe dans Vita3K automatiquement, sans fenêtre, avant le premier jeu.
+
+def vita_root():
+    return EMU / "vita3k" if IS_WIN else HOME / "Emulation" / "psvita"
+
+
+def vita_bios():
+    return (BASE if IS_WIN else HOME / "Emulation") / "bios" / "psvita"
+
+
+def vita_configure(portable):
+    """Réglages de base (ajoutés seulement s'ils manquent) et sauvegardes dans kDrive."""
+    portable.mkdir(parents=True, exist_ok=True)
+    cfg = portable / "config.yml"
+    lines = cfg.read_text(encoding="utf-8").splitlines() if cfg.exists() else []
+    keys = {l.split(":", 1)[0].strip() for l in lines if ":" in l and not l.startswith((" ", "#"))}
+    wanted = {"sys-lang": "2",                 # français
+              "sys-button": "1",               # croix pour valider
+              "initial-setup": "true", "show-welcome": "false", "check-for-updates": "false",
+              "discord-rich-presence": "false"}
+    lines += [f"{k}: {v}" for k, v in wanted.items() if k not in keys]
+    cfg.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    saves = HOME / "kDrive" / "Saves" / "PSVita"
+    link = portable / "fs" / "ux0" / "user" / "00" / "savedata"
+    if saves.parent.exists():
+        saves.mkdir(exist_ok=True)
+        link.parent.mkdir(parents=True, exist_ok=True)
+        if link.is_dir() and not link.is_symlink() and not (IS_WIN and os.path.isjunction(link)):
+            if any(link.iterdir()):
+                return              # sauvegardes déjà présentes : on n'y touche pas
+            link.rmdir()
+        if not link.exists():
+            if IS_WIN:
+                subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(saves)], check=True,
+                               capture_output=True, creationflags=NO_WINDOW)
+            else:
+                link.symlink_to(saves)
+
+
+def vita_prepare(cmd, g):
+    """Complète la commande Vita3K : firmware installé si besoin, puis lancement direct du jeu
+    (déjà installé : par son identifiant ; sinon installation puis lancement)."""
+    exe = cmd[0]
+    portable = Path(exe).parent / "portable"
+    vita_configure(portable)
+    fs = portable / "fs"
+    if not (fs / "vs0").is_dir():
+        pups = sorted(vita_bios().glob("*.PUP")) if vita_bios().is_dir() else []
+        main = [p for p in pups if p.name.upper() == "PSVUPDAT.PUP"]
+        if not main:
+            return False, "Firmware PS Vita manquant (bios/psvita/PSVUPDAT.PUP)"
+        for pup in main + [p for p in pups if p not in main]:
+            subprocess.run([exe, "--firmware", str(pup)], cwd=str(Path(exe).parent), capture_output=True,
+                           timeout=600, creationflags=NO_WINDOW)
+    tid = g.get("serial")
+    if tid and (fs / "ux0" / "app" / tid / "eboot.bin").exists():
+        cmd[1:] = ["--frontend", "sdl", "-F", "-r", tid]
+    else:
+        cmd[1:] = ["--frontend", "sdl", "-F", g["launch"]]
+    return True, "ok"
 
 
 def app_dir(e):
@@ -1283,7 +1389,7 @@ class EmuManager:
         saves = HOME / "kDrive" / "Saves"
         if saves.exists() and Path(saves.anchor) == Path(Path(root).anchor):
             parts += [saves / c for c in ("PS2", "PSP", "PS3", "PS4", "NES", "N64", "GBA", "DS", "GameCube", "Wii",
-                                         "Xbox", "Xbox 360")]
+                                         "Xbox", "Xbox 360", "PSVita")]
         seen, formula = set(), 0
         for p in parts:
             p = Path(p)
@@ -1319,7 +1425,10 @@ class EmuManager:
         data = json.loads(http_get(f"https://api.github.com/repos/{repo}/releases/latest", 30))
         for a in data.get("assets", []):
             if re.search(pattern, a["name"]):
-                return a["browser_download_url"], data.get("tag_name", "?").lstrip("v.")
+                tag = data.get("tag_name", "?")
+                if tag == "continuous":      # version publiée en continu : on retient sa date
+                    tag = (data.get("published_at") or "?")[:10]
+                return a["browser_download_url"], tag.lstrip("v.")
         raise OSError("aucune version téléchargeable trouvée")
 
     def _download(self, e, url, dest):
@@ -1350,6 +1459,8 @@ class EmuManager:
             setup = APP_DIR / "tools" / "setup_windows.py"
             fn = {"pcsx2": "pcsx2", "ppsspp": "ppsspp", "rpcs3": "rpcs3", "shadps4": "shadps4", "mgba": "mgba",
                   "melonds": "melonds", "dolphin": "dolphin", "rmg": "rmg", "xemu": "xemu", "xenia": "xenia"}.get(e["id"])
+            if e["id"] == "vita3k":
+                vita_configure(target / "portable")
             if setup.exists() and fn:
                 import importlib.util
                 spec = importlib.util.spec_from_file_location("setup_windows", setup)
@@ -1374,6 +1485,8 @@ class EmuManager:
                 arc.unlink()
             os.chmod(d / a["file"], 0o755)
             (d / ".formula-version").write_text(ver, encoding="utf-8")
+            if e["id"] == "vita3k":
+                vita_configure(d / "portable")
         else:
             subprocess.run(["flatpak", "install", "--user", "-y", "--noninteractive", "flathub", e["flatpak"]],
                            check=True, capture_output=True, timeout=3600)
