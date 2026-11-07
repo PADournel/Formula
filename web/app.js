@@ -42,6 +42,16 @@ const I18N = {
     installError: (e) => `Failed: ${e}`, busyGame: "Close the game first",
     display: "Display", displayHint: "FORMULA window on this PC (F11 also switches).",
     windowed: "Window", fullscreen: "Full screen", coverSize: "Cover size",
+    whoPlays: "Who's playing?", manageProfiles: "Manage profiles", doneManaging: "Done", addProfile: "Add",
+    newProfile: "New profile", editProfile: "Edit profile", profileName: "Name", profileDefault: "Player",
+    parentQuestion: "Parent account?", parentHint: "A parent account is opened with a 4-digit code, also asked to add, edit or delete profiles.",
+    changePin: "Change the code", save: "Save", cancel: "Cancel", deleteProfile: "Delete",
+    pinFor: (n) => `Code for ${n}`, pinParent: "Parent code", pinNew: "Choose a 4-digit code", pinConfirm: "Type the code again",
+    pinWrong: "Wrong code", pinMismatch: "The codes don't match",
+    confirmDeleteProfile: (n) => `Delete the profile ${n}? Its saves are kept in kDrive (Saves/Profils/_supprimes).`,
+    profile: "Profile", profileHint: "Each profile has its own saves, favourites and recently played games.",
+    switchProfile: "Switch profile", profileFull: "4 profiles maximum", profileError: "Could not save the profile",
+    needProfile: "Choose a profile first",
   },
   fr: {
     refresh: "Actualiser", settings: "Paramètres", quit: "Quitter", search: "Rechercher un jeu", searchShort: "Rechercher",
@@ -69,6 +79,16 @@ const I18N = {
     installError: (e) => `Échec : ${e}`, busyGame: "Ferme d'abord le jeu",
     display: "Affichage", displayHint: "Fenêtre de FORMULA sur ce PC (F11 bascule aussi).",
     windowed: "Fenêtre", fullscreen: "Plein écran", coverSize: "Taille des jaquettes",
+    whoPlays: "Qui joue ?", manageProfiles: "Gérer les profils", doneManaging: "Terminé", addProfile: "Ajouter",
+    newProfile: "Nouveau profil", editProfile: "Modifier le profil", profileName: "Nom", profileDefault: "Joueur",
+    parentQuestion: "Compte parent ?", parentHint: "Un compte parent s'ouvre avec un code à 4 chiffres, demandé aussi pour ajouter, modifier ou supprimer un profil.",
+    changePin: "Changer le code", save: "Enregistrer", cancel: "Annuler", deleteProfile: "Supprimer",
+    pinFor: (n) => `Code de ${n}`, pinParent: "Code parent", pinNew: "Choisis un code à 4 chiffres", pinConfirm: "Retape le code",
+    pinWrong: "Code incorrect", pinMismatch: "Les deux codes sont différents",
+    confirmDeleteProfile: (n) => `Supprimer le profil ${n} ? Ses sauvegardes sont conservées dans kDrive (Saves/Profils/_supprimes).`,
+    profile: "Profil", profileHint: "Chaque profil a ses propres sauvegardes, favoris et jeux récents.",
+    switchProfile: "Changer de profil", profileFull: "4 profils au maximum", profileError: "Enregistrement du profil impossible",
+    needProfile: "Choisis d'abord un profil",
   },
 };
 let LANG = "en";
@@ -93,6 +113,9 @@ function applyI18n() {
   render();
   paintSettings();
   paintZoom();
+  if (pf.open) renderProfiles();
+  if (pinBox.open) paintPin();
+  if (pe.open) paintEdit();
 }
 async function setLang(lang) {
   if (!I18N[lang]) return;
@@ -129,7 +152,9 @@ async function load() {
       paintSettings();
       if (d.settings && d.settings.lang && d.settings.lang !== LANG) { LANG = d.settings.lang; applyI18n(); }
     }
-    const sig = JSON.stringify([d.games.map((g) => [g.id, g.cover, g.fav, g.title]), d.systems.length]);
+    if (!d.profile && !pf.open && !state.running) openProfiles();
+    if (d.profile !== pf.cur) { pf.cur = d.profile; if (!pf.list.length) await fetchProfiles(); paintWho(); }
+    const sig = JSON.stringify([d.profile, d.games.map((g) => [g.id, g.cover, g.fav, g.title]), d.systems.length]);
     state.systems = d.systems.sort((a, b) => a.order - b.order);
     setRunning(d.running);
     $("#status").classList.toggle("hidden", !d.scanning);
@@ -403,15 +428,15 @@ async function launch() {
   if (c) { c.classList.remove("launch"); void c.offsetWidth; c.classList.add("launch"); }
   const r = await fetch("/api/launch", { method: "POST", body: JSON.stringify({ id: g.id }) });
   const d = await r.json();
-  if (!d.ok) return toast(t("launchFailed"));
+  if (!d.ok) return toast(pf.cur ? t("launchFailed") : t("needProfile"));
   setRunning(g.id);
 }
 
 async function toggleFav() {
   const g = visible()[state.gi];
   if (!g) return;
-  await fetch("/api/fav", { method: "POST", body: JSON.stringify({ id: g.id }) });
-  g.fav = !g.fav;
+  const r = await fetch("/api/fav", { method: "POST", body: JSON.stringify({ id: g.id }) });
+  if (r.ok) g.fav = !g.fav;
   state.sig = "";
   load();
 }
@@ -458,7 +483,7 @@ const settings = { open: false, row: 0, col: 0, emus: [], timer: null };
 function openSettings() {
   settings.open = true;
   settings.row = 0;
-  settings.col = LANG === "fr" ? 1 : 0;
+  settings.col = 0;
   $("#settings").classList.remove("hidden");
   loadEmus();
   clearInterval(settings.timer);
@@ -529,7 +554,7 @@ async function emuAction(e, action) {
   loadEmus();
 }
 // lignes d'options avant la liste des émulateurs : langue, puis affichage (fenêtre FORMULA.exe uniquement)
-const optRows = () => (hasHost() ? ["#set-lang", "#set-display"] : ["#set-lang"]);
+const optRows = () => (hasHost() ? ["#set-profile", "#set-lang", "#set-display"] : ["#set-profile", "#set-lang"]);
 function paintSettings() {
   document.querySelectorAll("#set-lang .set-opt").forEach((b) => b.classList.toggle("on", b.dataset.lang === LANG));
   document.querySelectorAll("#set-display .set-opt").forEach((b) => b.classList.toggle("on", (b.dataset.fs === "1") === display.fullscreen));
@@ -555,7 +580,10 @@ function settingsHandle(name) {
     settings.scroll = true;
     if (settings.row < opts) settings.col = Math.max(0, optCol(settings.row));
   }
-  else if ((name === "left" || name === "right") && settings.row < opts) settings.col = name === "left" ? 0 : 1;
+  else if ((name === "left" || name === "right") && settings.row < opts) {
+    const n = document.querySelectorAll(optRows()[settings.row] + " .set-opt").length;
+    settings.col = Math.max(0, Math.min(n - 1, settings.col + (name === "left" ? -1 : 1)));
+  }
   else if (name === "a") {
     if (settings.row < opts) document.querySelectorAll(optRows()[settings.row] + " .set-opt")[settings.col]?.click();
     else toggleEmu(settings.emus[settings.row - opts]);
@@ -564,6 +592,8 @@ function settingsHandle(name) {
   paintSettings();
 }
 document.querySelectorAll("#set-lang .set-opt").forEach((b) => { b.onclick = () => setLang(b.dataset.lang); });
+$("#set-switch").onclick = () => { closeSettings(); openProfiles(); };
+$("#set-manage").onclick = () => { closeSettings(); openProfiles(true); };
 document.querySelectorAll("#set-display .set-opt").forEach((b) => { b.onclick = () => setFullscreen(b.dataset.fs === "1"); });
 $("#settings .set-close").onclick = closeSettings;
 $("#settings").addEventListener("click", (e) => { if (e.target.id === "settings") closeSettings(); });
@@ -623,9 +653,25 @@ function openOsk() {
   $("#osk").classList.remove("hidden");
   paintOsk();
 }
-function closeOsk() { osk.open = false; $("#osk").classList.add("hidden"); stopRepeats(); }
+function closeOsk() {
+  osk.open = false;
+  $("#osk").classList.add("hidden");
+  stopRepeats();
+  const tg = osk.target;
+  osk.target = null;
+  if (tg && tg.done) tg.done();
+}
+function openOskFor(target) {
+  osk.target = target;
+  osk.open = true;
+  $("#osk").classList.remove("hidden");
+  paintOsk();
+}
+// le clavier écrit dans la recherche, ou dans un autre champ (nom du profil) : osk.target = { get, set, done }
+const oskGet = () => (osk.target ? osk.target.get() : state.query);
+const oskSet = (v) => (osk.target ? (osk.target.set(v), paintOsk()) : setQuery(v));
 function paintOsk() {
-  $("#osk-text").textContent = state.query;
+  $("#osk-text").textContent = oskGet();
   osk.keys.forEach((k, i) => k.el.classList.toggle("focus", i === osk.idx));
 }
 function setQuery(q) {
@@ -636,11 +682,12 @@ function setQuery(q) {
   paintOsk();
 }
 function oskPress(key) {
-  if (key.k === "space") setQuery(state.query + " ");
-  else if (key.k === "back") setQuery(state.query.slice(0, -1));
-  else if (key.k === "clear") setQuery("");
+  if (key.k === "space") oskSet(oskGet() + " ");
+  else if (key.k === "back") oskSet(oskGet().slice(0, -1));
+  else if (key.k === "clear") oskSet("");
   else if (key.k === "ok") closeOsk();
-  else setQuery(state.query + key.k.toLowerCase());
+  // recherche en minuscules ; nom de profil : majuscule au début seulement
+  else oskSet(oskGet() + (osk.target && !oskGet() ? key.k : key.k.toLowerCase()));
 }
 function oskMove(dx, dy) {
   const cur = osk.keys[osk.idx];
@@ -662,27 +709,344 @@ function oskHandle(name) {
   else if (name === "left") oskMove(-1, 0);
   else if (name === "right") oskMove(1, 0);
   else if (name === "a") oskPress(osk.keys[osk.idx]);
-  else if (name === "b") { if (state.query) setQuery(state.query.slice(0, -1)); else closeOsk(); }
-  else if (name === "y") setQuery(state.query + " ");
+  else if (name === "b") { if (oskGet()) oskSet(oskGet().slice(0, -1)); else closeOsk(); }
+  else if (name === "y") oskSet(oskGet() + " ");
   else if (name === "x" || name === "start" || name === "select") closeOsk();
 }
 $("#osk").addEventListener("click", (e) => { if (e.target.id === "osk") closeOsk(); });
 $("#search").addEventListener("pointerdown", (e) => { if (e.pointerType === "touch") { e.preventDefault(); openOsk(); } });
 
-// une surcouche ouverte (clavier, paramètres) reçoit les commandes à la place de la bibliothèque
+// ------------------------------------------------------------ profils (« Qui joue ? »)
+// Jusqu'à 4 profils, chacun avec ses sauvegardes (dans kDrive), ses favoris et ses jeux récents.
+// Un compte parent s'ouvre avec un code à 4 chiffres ; dès qu'il en existe un, ajouter, modifier ou
+// supprimer un profil demande aussi un code parent.
+const pf = { open: false, list: [], cur: null, last: null, max: 4, parents: false, idx: 0, row: 0, manage: false, auth: null };
+const FACE = '<svg class="face" viewBox="0 0 64 64" aria-hidden="true"><circle class="eye" cx="22" cy="25" r="4.5"/><circle class="eye" cx="42" cy="25" r="4.5"/><path d="M19 39c7 8 19 8 26 0"/></svg>';
+const LOCK = '<span class="lock"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>';
+function avatarHtml(p) {
+  return `<div class="avatar" style="--pc:${esc(p.color || "#8b6cff")}">${FACE}${p.parent ? LOCK : ""}</div>`;
+}
+async function fetchProfiles() {
+  try {
+    const d = await (await fetch("/api/profiles", { cache: "no-store" })).json();
+    Object.assign(pf, { list: d.profiles, cur: d.current, last: d.last, max: d.max, parents: d.parents });
+  } catch (e) { /* serveur en train de démarrer */ }
+}
+function paintWho() {
+  const p = pf.list.find((x) => x.id === pf.cur);
+  $("#who").classList.toggle("hidden", !p);
+  if (!p) return;
+  $("#who-avatar").innerHTML = avatarHtml(p);
+  $("#who-name").textContent = p.name;
+}
+async function openProfiles(manage = false) {
+  if (state.running) return;
+  pf.open = true;
+  pf.row = 0;
+  pf.manage = false;
+  $("#profiles").classList.remove("hidden");
+  await fetchProfiles();
+  const want = pf.cur || pf.last;
+  pf.idx = Math.max(0, pf.list.findIndex((p) => p.id === want));
+  renderProfiles();
+  if (manage) startManage();
+}
+function closeProfiles() {
+  pf.open = false;
+  pf.manage = false;
+  $("#profiles").classList.add("hidden");
+  stopRepeats();
+}
+const pfTiles = () => pf.list.length + (pf.manage && pf.list.length < pf.max ? 1 : 0);
+function renderProfiles() {
+  $("#pf-title").textContent = pf.manage ? t("manageProfiles") : t("whoPlays");
+  const box = $("#pf-list");
+  box.innerHTML = "";
+  pf.list.forEach((p, i) => {
+    const b = document.createElement("button");
+    b.className = "pf-tile" + (p.id === pf.cur ? " cur" : "");
+    b.innerHTML = avatarHtml(p) + `<span class="pf-name">${esc(p.name)}</span>`;
+    if (pf.manage) { b.classList.add("managing"); b.querySelector(".avatar").insertAdjacentHTML("beforeend", '<span class="edit">✎</span>'); }
+    b.onclick = () => { pf.idx = i; pf.row = 0; paintProfiles(); pickTile(); };
+    box.appendChild(b);
+  });
+  if (pf.manage && pf.list.length < pf.max) {
+    const b = document.createElement("button");
+    b.className = "pf-tile";
+    b.innerHTML = `<div class="avatar add"><b>+</b></div><span class="pf-name">${esc(t("addProfile"))}</span>`;
+    b.onclick = () => { pf.idx = pf.list.length; pf.row = 0; paintProfiles(); pickTile(); };
+    box.appendChild(b);
+  }
+  $("#pf-manage").textContent = pf.manage ? t("doneManaging") : t("manageProfiles");
+  // retour possible seulement si un profil est déjà ouvert (changement de profil)
+  $("#pf-back-hint").classList.toggle("hidden", !pf.cur && !pf.manage);
+  paintProfiles();
+}
+function paintProfiles() {
+  pf.idx = Math.max(0, Math.min(pf.idx, pfTiles() - 1));
+  document.querySelectorAll("#pf-list .pf-tile").forEach((b, i) => b.classList.toggle("focus", pf.row === 0 && i === pf.idx));
+  $("#pf-manage").classList.toggle("focus", pf.row === 1);
+}
+function pickTile() {
+  if (pf.manage) {
+    const p = pf.list[pf.idx];
+    return openEdit(p || null);
+  }
+  const p = pf.list[pf.idx];
+  if (!p) return;
+  if (p.parent) askPin({ title: t("pinFor", p.name), profile: p, onDone: (pin) => selectProfile(p, pin) });
+  else selectProfile(p);
+}
+async function selectProfile(p, pin) {
+  const r = await fetch("/api/profiles/select", { method: "POST", body: JSON.stringify({ id: p.id, pin }) });
+  const d = await r.json();
+  if (!d.ok) {
+    if (pinBox.open) return pinError(t("pinWrong"));
+    return toast(t("launchFailed"));
+  }
+  closePin();
+  pf.cur = d.current;
+  pf.list = d.profiles;
+  closeProfiles();
+  paintWho();
+  state.sig = "";
+  load();
+}
+// gestion : code parent demandé une fois à l'entrée (s'il existe un compte parent), gardé jusqu'à la sortie
+function startManage() {
+  const go = (auth) => { pf.auth = auth || null; pf.manage = true; pf.idx = 0; pf.row = 0; closePin(); renderProfiles(); };
+  if (!pf.parents) return go();
+  askPin({
+    title: t("pinParent"),
+    onDone: async (pin) => {
+      const r = await fetch("/api/profiles/auth", { method: "POST", body: JSON.stringify({ auth: pin }) });
+      const d = await r.json();
+      if (d.ok) go(pin); else pinError(t("pinWrong"));
+    },
+  });
+}
+function stopManage() { pf.manage = false; pf.auth = null; pf.idx = Math.max(0, pf.list.findIndex((p) => p.id === pf.cur)); renderProfiles(); }
+function profilesHandle(name) {
+  const n = pfTiles();
+  if (name === "left" && pf.row === 0) pf.idx = (pf.idx - 1 + n) % n;
+  else if (name === "right" && pf.row === 0) pf.idx = (pf.idx + 1) % n;
+  else if (name === "down") pf.row = 1;
+  else if (name === "up") pf.row = 0;
+  else if (name === "a") return pf.row === 1 ? $("#pf-manage").click() : pickTile();
+  else if (name === "y") return $("#pf-manage").click();
+  else if (name === "b") {
+    if (pf.manage) return stopManage();
+    if (pf.cur) return closeProfiles();
+  }
+  paintProfiles();
+}
+$("#pf-manage").onclick = () => (pf.manage ? stopManage() : startManage());
+$("#who").onclick = () => openProfiles();
+
+// ------------------------------------------------------------ pavé du code (4 chiffres)
+const pinBox = { open: false, digits: "", idx: 4, opts: null, first: null };
+const PIN_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "back", "0", "cancel"];
+function buildPin() {
+  const box = $("#pin-keys");
+  box.innerHTML = "";
+  PIN_KEYS.forEach((k, i) => {
+    const b = document.createElement("button");
+    b.className = "key" + (k.length > 1 ? " action" : "");
+    b.textContent = k === "back" ? "⌫" : k === "cancel" ? "✕" : k;
+    b.onclick = () => { pinBox.idx = i; pinKey(k); };
+    box.appendChild(b);
+  });
+}
+// opts : { title, profile?, confirm? (nouveau code tapé deux fois), onDone(pin), onCancel? }
+function askPin(opts) {
+  Object.assign(pinBox, { open: true, digits: "", idx: 4, opts, first: null });
+  $("#pin-avatar").innerHTML = opts.profile ? avatarHtml(opts.profile) : "";
+  $("#pin").classList.remove("hidden");
+  $("#pin-msg").textContent = "";
+  paintPin();
+}
+function closePin(cancelled) {
+  if (!pinBox.open) return;
+  pinBox.open = false;
+  $("#pin").classList.add("hidden");
+  stopRepeats();
+  if (cancelled && pinBox.opts && pinBox.opts.onCancel) pinBox.opts.onCancel();
+}
+function paintPin() {
+  const o = pinBox.opts || {};
+  $("#pin-title").textContent = pinBox.first != null ? t("pinConfirm") : o.title || "";
+  document.querySelectorAll("#pin-dots i").forEach((e, i) => e.classList.toggle("on", i < pinBox.digits.length));
+  document.querySelectorAll("#pin-keys .key").forEach((e, i) => e.classList.toggle("focus", i === pinBox.idx));
+}
+function pinError(msg) {
+  pinBox.digits = "";
+  $("#pin-msg").textContent = msg;
+  const dots = $("#pin-dots");
+  dots.classList.remove("shake"); void dots.offsetWidth; dots.classList.add("shake");
+  paintPin();
+}
+function pinDigit(d) {
+  if (pinBox.digits.length >= 4) return;
+  pinBox.digits += d;
+  $("#pin-msg").textContent = "";
+  paintPin();
+  if (pinBox.digits.length < 4) return;
+  const pin = pinBox.digits;
+  const o = pinBox.opts;
+  if (o.confirm && pinBox.first == null) { pinBox.first = pin; pinBox.digits = ""; return setTimeout(paintPin, 120); }
+  if (o.confirm && pinBox.first !== pin) { pinBox.first = null; return pinError(t("pinMismatch")); }
+  setTimeout(() => o.onDone(pin), 120);
+}
+function pinKey(k) {
+  if (k === "back") { pinBox.digits = pinBox.digits.slice(0, -1); paintPin(); }
+  else if (k === "cancel") closePin(true);
+  else pinDigit(k);
+}
+function pinHandle(name) {
+  const i = pinBox.idx;
+  if (name === "left") pinBox.idx = i % 3 ? i - 1 : i + 2;
+  else if (name === "right") pinBox.idx = i % 3 < 2 ? i + 1 : i - 2;
+  else if (name === "up") pinBox.idx = (i + 9) % 12;
+  else if (name === "down") pinBox.idx = (i + 3) % 12;
+  else if (name === "a") return pinKey(PIN_KEYS[pinBox.idx]);
+  else if (name === "b") { if (pinBox.digits) pinKey("back"); else closePin(true); return; }
+  else if (name === "start" || name === "select") return closePin(true);
+  paintPin();
+}
+$("#pin").addEventListener("click", (e) => { if (e.target.id === "pin") closePin(true); });
+
+// ------------------------------------------------------------ ajout / modification d'un profil
+// lignes : 0 nom, 1 compte parent (Non / Oui), 2 changer le code (parent existant), 3 boutons
+const pe = { open: false, p: null, name: "", parent: false, pin: null, row: 0, col: 0 };
+function openEdit(p) {
+  if (!p && pf.list.length >= pf.max) return toast(t("profileFull"));
+  Object.assign(pe, { open: true, p, name: p ? p.name : "", parent: !!(p && p.parent), pin: null, row: 0, col: 0 });
+  $("#pe-name").value = pe.name;
+  $("#pedit").classList.remove("hidden");
+  paintEdit();
+}
+function closeEdit() {
+  pe.open = false;
+  $("#pe-name").blur();
+  $("#pedit").classList.add("hidden");
+  stopRepeats();
+}
+const editRows = () => ["name", "parent"].concat(pe.p && pe.p.parent && pe.parent ? ["pin"] : [], ["actions"]);
+const editActions = () => ["#pe-save"].concat(pe.p && pf.list.length > 1 ? ["#pe-delete"] : [], ["#pe-cancel"]);
+function paintEdit() {
+  if (!pe.open) return;
+  $("#pe-title").textContent = pe.p ? t("editProfile") : t("newProfile");
+  const color = pe.p ? pe.p.color : ["#8b6cff", "#22b8ff", "#2fbf71", "#ff8a3d"].find((c) => !pf.list.some((p) => p.color === c));
+  $("#pe-avatar").innerHTML = avatarHtml({ color, parent: pe.parent });
+  $("#pe-pin-row").classList.toggle("hidden", !editRows().includes("pin"));
+  $("#pe-delete").classList.toggle("hidden", !editActions().includes("#pe-delete"));
+  const rows = editRows();
+  pe.row = Math.min(pe.row, rows.length - 1);
+  const row = rows[pe.row];
+  $("#pe-name").classList.toggle("focus", row === "name");
+  document.querySelectorAll("#pe-parent .set-opt").forEach((b, i) => {
+    b.classList.toggle("on", (b.dataset.v === "1") === pe.parent);
+    b.classList.toggle("focus", row === "parent" && pe.col === i);
+  });
+  $("#pe-pin").classList.toggle("focus", row === "pin");
+  const acts = editActions();
+  document.querySelectorAll(".pe-actions .btn").forEach((b) => b.classList.toggle("focus", row === "actions" && acts[pe.col] === "#" + b.id));
+}
+function editName() {
+  // Deck : clavier à l'écran ; PC : saisie directe dans le champ
+  if (PLATFORM === "Windows") { $("#pe-name").focus(); return; }
+  openOskFor({ get: () => pe.name, set: (v) => { pe.name = v.slice(0, 20); $("#pe-name").value = pe.name; }, done: paintEdit });
+}
+function setParent(on) {
+  if (!on) { pe.parent = false; pe.pin = null; return paintEdit(); }
+  if (pe.parent) return;
+  if (pe.p && pe.p.parent) { pe.parent = true; return paintEdit(); }   // code existant gardé
+  askPin({
+    title: t("pinNew"), confirm: true,
+    onDone: (pin) => { pe.pin = pin; pe.parent = true; closePin(); paintEdit(); },
+  });
+}
+function changePin() {
+  askPin({ title: t("pinNew"), confirm: true, onDone: (pin) => { pe.pin = pin; closePin(); paintEdit(); } });
+}
+async function saveEdit() {
+  const name = (pe.name || "").trim() || t("profileDefault");
+  const body = pe.p
+    ? { id: pe.p.id, name, parent: pe.parent, pin: pe.pin || undefined, auth: pf.auth }
+    : { name, parent: pe.parent, pin: pe.pin || undefined, auth: pf.auth };
+  // le premier compte parent créé devient le code de gestion
+  const r = await fetch(`/api/profiles/${pe.p ? "update" : "create"}`, { method: "POST", body: JSON.stringify(body) });
+  const d = await r.json();
+  if (!d.ok) return toast(d.error === "full" ? t("profileFull") : t("profileError"));
+  if (!pf.auth && pe.parent && pe.pin) pf.auth = pe.pin;
+  Object.assign(pf, { list: d.profiles, parents: d.parents });
+  closeEdit();
+  renderProfiles();
+  paintWho();
+}
+function deleteEdit() {
+  const p = pe.p;
+  openConfirm(t("confirmDeleteProfile", p.name), async () => {
+    const r = await fetch("/api/profiles/delete", { method: "POST", body: JSON.stringify({ id: p.id, auth: pf.auth }) });
+    const d = await r.json();
+    if (!d.ok) return toast(t("profileError"));
+    Object.assign(pf, { list: d.profiles, parents: d.parents, cur: d.current });
+    if (!pf.parents) pf.auth = null;
+    closeEdit();
+    renderProfiles();
+    paintWho();
+  });
+}
+function editHandle(name) {
+  const rows = editRows();
+  const row = rows[pe.row];
+  if (name === "up" || name === "down") {
+    if (document.activeElement === $("#pe-name")) $("#pe-name").blur();
+    pe.row = (pe.row + (name === "up" ? -1 : 1) + rows.length) % rows.length;
+    pe.col = rows[pe.row] === "parent" ? (pe.parent ? 1 : 0) : 0;
+  } else if (name === "left" || name === "right") {
+    const n = row === "parent" ? 2 : row === "actions" ? editActions().length : 1;
+    pe.col = Math.max(0, Math.min(n - 1, pe.col + (name === "left" ? -1 : 1)));
+  } else if (name === "a") {
+    if (row === "name") { if (document.activeElement === $("#pe-name")) { $("#pe-name").blur(); pe.row = 1; } else return editName(); }
+    else if (row === "parent") return setParent(pe.col === 1);
+    else if (row === "pin") return changePin();
+    else return $(editActions()[pe.col]).click();
+  } else if (name === "b" || name === "select" || name === "start") return closeEdit();
+  paintEdit();
+}
+$("#pe-name").addEventListener("input", (e) => { pe.name = e.target.value; });
+$("#pe-name").addEventListener("pointerdown", (e) => { if (e.pointerType === "touch" && PLATFORM !== "Windows") { e.preventDefault(); editName(); } });
+document.querySelectorAll("#pe-parent .set-opt").forEach((b) => { b.onclick = () => { pe.row = 1; pe.col = +b.dataset.v; setParent(b.dataset.v === "1"); }; });
+$("#pe-pin").onclick = changePin;
+$("#pe-save").onclick = saveEdit;
+$("#pe-delete").onclick = deleteEdit;
+$("#pe-cancel").onclick = closeEdit;
+buildPin();
+
+// une surcouche ouverte (clavier, paramètres, profils) reçoit les commandes à la place de la bibliothèque
 function overlayHandler() {
   if (confirmBox.open) return confirmHandle;
   if (osk.open) return oskHandle;
+  if (pinBox.open) return pinHandle;
+  if (pe.open) return editHandle;
+  if (pf.open) return profilesHandle;
   if (settings.open) return settingsHandle;
   return null;
 }
 
 // ------------------------------------------------------------ clavier
 document.addEventListener("keydown", (e) => {
-  if (osk.open || settings.open || confirmBox.open) {
-    const map = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "a", Escape: osk.open && !confirmBox.open ? "x" : "b", Backspace: "b" };
-    if (map[e.key]) overlayHandler()(map[e.key]);
-    else if (osk.open && e.key.length === 1) setQuery(state.query + e.key.toLowerCase());
+  const over = overlayHandler();
+  if (over) {
+    // nom du profil tapé au clavier (PC) : le champ garde les touches de saisie
+    if (over === editHandle && document.activeElement === $("#pe-name") && !["Enter", "Escape", "ArrowUp", "ArrowDown", "Tab"].includes(e.key)) return;
+    const map = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "a", Escape: osk.open && !confirmBox.open ? "x" : "b", Backspace: "b", Tab: "down" };
+    if (over === pinHandle && /^[0-9]$/.test(e.key)) pinDigit(e.key);
+    else if (over === pinHandle && e.key === "Escape") closePin(true);
+    else if (map[e.key]) over(map[e.key]);
+    else if (over === profilesHandle && e.key === "y") profilesHandle("y");
+    else if (osk.open && e.key.length === 1) oskSet(oskGet() + (osk.target ? e.key : e.key.toLowerCase()));
     else return;
     e.preventDefault();
     return;

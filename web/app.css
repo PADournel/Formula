@@ -244,3 +244,69 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
   .search { width: 200px; }
   .hint-list { display: none; }
 }
+
+/* ---------- profils ---------- */
+.avatar { --pc: #8b6cff; position: relative; display: grid; place-items: center; width: 100%; aspect-ratio: 1; border-radius: 18%;
+  background: radial-gradient(circle at 30% 25%, color-mix(in srgb, var(--pc) 70%, #fff) 0, var(--pc) 45%, color-mix(in srgb, var(--pc) 55%, #000) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+.avatar svg.face { width: 62%; height: 62%; }
+.avatar svg.face * { fill: none; stroke: rgba(255,255,255,.92); stroke-width: 4.5; stroke-linecap: round; }
+.avatar svg.face .eye { fill: rgba(255,255,255,.92); stroke: none; }
+.avatar .lock { position: absolute; right: -6%; bottom: -6%; width: 30%; height: 30%; border-radius: 50%; display: grid; place-items: center;
+  background: #11131c; border: 2px solid var(--pc); }
+.avatar .lock svg { width: 58%; height: 58%; }
+.avatar .lock svg * { fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.avatar.add { background: rgba(255,255,255,.05); box-shadow: inset 0 0 0 2px rgba(255,255,255,.18); }
+.avatar.add b { font-size: 3.2em; font-weight: 400; color: var(--muted); line-height: 1; }
+
+#profiles { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; background: radial-gradient(ellipse at 50% 30%, #161a2a 0, #06070b 70%); animation: fade .25s; }
+.pf-wrap { display: flex; flex-direction: column; align-items: center; gap: 26px; padding: 24px; }
+.pf-logo { margin: 0; }
+#pf-title { margin: 0; font-family: Outfit, sans-serif; font-weight: 800; font-size: clamp(28px, 4.4vw, 46px); letter-spacing: -.01em; }
+#pf-list { display: flex; gap: clamp(16px, 3vw, 34px); flex-wrap: wrap; justify-content: center; }
+.pf-tile { width: clamp(108px, 13vw, 168px); display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--muted);
+  font-size: 17px; font-weight: 600; transition: transform .15s, color .15s; }
+.pf-tile .avatar { font-size: clamp(14px, 1.6vw, 20px); transition: box-shadow .15s; }
+.pf-tile .edit { position: absolute; inset: 0; display: grid; place-items: center; border-radius: inherit; background: rgba(6,7,11,.5); font-size: 2.4em; color: #fff; }
+.pf-tile.managing svg.face { opacity: 0; }
+.pf-tile.focus, .pf-tile:hover { color: var(--text); transform: scale(1.06); }
+.pf-tile.focus .avatar { box-shadow: 0 0 0 4px #fff, 0 16px 40px -10px var(--pc); }
+.pf-tile.cur .pf-name::after { content: " •"; color: var(--a2); }
+#pf-manage { height: 42px; }
+#pf-manage.focus { outline: 2px solid #fff; outline-offset: 2px; }
+
+#who { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px 0 4px; border-radius: 12px; background: rgba(255,255,255,.06);
+  border: 1px solid var(--line); font-size: 13.5px; font-weight: 600; color: var(--text); }
+#who-avatar { width: 28px; }
+#who-avatar .avatar { border-radius: 8px; }
+#who-avatar .avatar .lock { display: none; }
+
+#pin { position: fixed; inset: 0; z-index: 34; display: grid; place-items: center; background: rgba(4,5,8,.7); backdrop-filter: blur(8px); animation: fade .15s; }
+.pin-panel { width: min(360px, 92vw); padding: 22px 22px 14px; border-radius: 20px; background: rgba(17,19,28,.98); border: 1px solid var(--line); text-align: center; box-shadow: 0 30px 60px rgba(0,0,0,.7); }
+#pin-avatar { width: 72px; margin: 0 auto 10px; }
+#pin-avatar:empty { display: none; }
+#pin-title { margin: 0 0 14px; font-family: Outfit, sans-serif; font-size: 20px; font-weight: 700; }
+#pin-dots { display: flex; gap: 14px; justify-content: center; margin-bottom: 8px; }
+#pin-dots i { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4); transition: background .1s; }
+#pin-dots i.on { background: #fff; border-color: #fff; }
+#pin-dots.shake { animation: shake .35s; }
+@keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+#pin-msg { min-height: 20px; font-size: 13px; color: #ff6b81; margin-bottom: 8px; }
+#pin-msg.info { color: var(--muted); }
+#pin-keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+#pin-keys .key { height: 52px; font-size: 20px; }
+
+#pedit { position: fixed; inset: 0; z-index: 32; display: grid; place-items: center; background: rgba(4,5,8,.7); backdrop-filter: blur(8px); animation: fade .15s; }
+.pe-panel { width: min(520px, 92vw); padding: 22px 24px 18px; border-radius: 20px; background: rgba(17,19,28,.98); border: 1px solid var(--line); box-shadow: 0 30px 60px rgba(0,0,0,.7); }
+#pe-title { margin: 0 0 14px; font-family: Outfit, sans-serif; font-size: 22px; font-weight: 800; }
+#pe-avatar { width: 84px; margin: 0 auto 6px; }
+.pe-row { padding: 12px 0; border-top: 1px solid var(--line); }
+.pe-row label { display: block; margin-bottom: 8px; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+.pe-row p { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
+#pe-name { width: 100%; height: 46px; padding: 0 14px; border-radius: 12px; background: rgba(255,255,255,.06); border: 1px solid var(--line); color: var(--text); font: inherit; font-size: 17px; outline: none; }
+#pe-name.focus, #pe-name:focus { border-color: rgba(139,108,255,.9); box-shadow: 0 0 0 2px rgba(139,108,255,.35); }
+.pe-actions { display: flex; gap: 10px; justify-content: flex-end; padding-top: 14px; border-top: 1px solid var(--line); }
+.pe-actions .btn { height: 42px; }
+.pe-actions .btn.focus { outline: 2px solid #fff; outline-offset: 2px; }
+#osk { z-index: 40; }
+#confirm { z-index: 45; }

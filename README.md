@@ -7,7 +7,10 @@ Lanceur d'émulateurs façon bibliothèque Steam, pour Steam Deck et PC Windows.
 - Navigation à la manette (la fenêtre au premier plan garde les commandes), souris et tactile.
 - Lance le bon émulateur en plein écran, langue française par défaut quand elle existe.
 - Synchronisation des jeux entre appareils (service de fond, reprise automatique, file d'attente si l'autre appareil est éteint).
-- Sauvegardes de tous les émulateurs dans `kDrive/Saves/<console>`.
+- Profils façon Netflix (« Qui joue ? » au démarrage, 4 au maximum) : chaque profil a ses sauvegardes,
+  ses favoris et ses jeux récents. Un compte parent s'ouvre avec un code à 4 chiffres ; dès qu'il en existe un,
+  ce code est aussi demandé pour ajouter, modifier ou supprimer un profil.
+- Sauvegardes de tous les émulateurs dans `kDrive/Saves/Profils/<profil>/<console>`, donc communes au PC et au Deck.
 - Interface en anglais par défaut, français disponible dans les Paramètres.
 
 ## Versions
@@ -74,6 +77,8 @@ FORMULA ne fait rien en douce. Liste exhaustive de ce qu'il fait :
 - Installation d'un émulateur depuis Paramètres, uniquement quand tu coches la case : `api.github.com` et
   `github.com` (version officielle de l'émulateur), `dl.dolphin-emu.org`, ou Flathub sur le Deck.
   Installer PCSX2 télécharge aussi PCSX2 1.7.3780 (PCSX2 debug) depuis `github.com/PCSX2/pcsx2/releases`.
+- Premier jeu Xbox d'un nouveau profil : disque dur Xbox vierge (sans contenu Microsoft) depuis
+  `github.com/xemu-project/xemu-hdd-image`, une seule fois par profil.
 - La page elle-même est verrouillée par une politique de sécurité (CSP) : elle ne peut charger ou contacter
   que FORMULA. Les polices sont fournies avec l'application.
 - Sur PC, la fenêtre est `FORMULA.exe` (WebView2, le moteur web fourni avec Windows), pas un navigateur.
@@ -93,8 +98,18 @@ FORMULA ne fait rien en douce. Liste exhaustive de ce qu'il fait :
 
 **Ce qui est écrit sur le disque**
 - Le dossier de données (`<base>` sous Windows, `~/Emulation` et `~/.local/share/formula` sur le Deck),
-  les réglages des émulateurs, et les sauvegardes dans `kDrive/Saves/<console>`. Rien d'autre :
+  les réglages des émulateurs, et les sauvegardes dans `kDrive/Saves/Profils/<profil>/<console>`. Rien d'autre :
   pas de registre, pas de démarrage automatique ajouté à ton insu.
+- Profils : la liste est dans `kDrive/Saves/Profils/profiles.json` (nom, couleur, compte parent ; le code n'y est
+  jamais en clair, seulement une empreinte PBKDF2 salée). Favoris et parties de chaque profil :
+  `profiles/<id>.json` dans le dossier de données de l'appareil. Avant chaque lancement, FORMULA fait pointer
+  les dossiers de sauvegarde de l'émulateur vers le profil actif (liens, jonctions sous Windows, ou chemins dans
+  ses réglages). Sur le Deck, chaque émulateur flatpak reçoit l'accès à `kDrive/Saves/Profils` (`flatpak override`).
+  Rien n'est effacé : un profil supprimé part dans `Profils/_supprimes`, un vrai dossier trouvé à la place d'un
+  lien est recopié dans le profil puis renommé `<nom>.avant-profils-<date>`.
+- Passage aux profils (une fois par appareil) : le contenu des anciens dossiers `kDrive/Saves/<console>` est
+  recopié (sans rien écraser, puis vérifié) dans le profil « P.A.D », avec les favoris et les jeux récents.
+  Les anciens dossiers restent en place ; le compte rendu est dans `profiles-migrated.json`.
 
 ## Organisation
 
@@ -148,5 +163,5 @@ ce sont des fichiers Sony et Microsoft à extraire de sa propre console. Ils ne 
 ## Ajouter une console
 
 Ajouter une entrée dans `SYSTEMS` (et `WIN_CMDS` pour Windows) dans `formula.py`, ou dans `systems.json`
-du dossier de données. Penser à rediriger ses sauvegardes vers `kDrive/Saves/<console>`
+du dossier de données. Penser à déclarer ses dossiers de sauvegarde dans `save_targets()` (profils)
 et à écrire explicitement ses touches de manette.
