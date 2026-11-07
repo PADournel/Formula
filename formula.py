@@ -401,6 +401,9 @@ def parse_sfo(data):
             out[key] = struct.unpack("<I", raw[:4])[0]
         else:
             out[key] = raw.split(b"\0")[0].decode("utf-8", "replace")
+    if isinstance(out.get("TITLE"), str):
+        # « God of War®: Ghost of Sparta », « Killzone™: Liberation » : symboles de marque retirés
+        out["TITLE"] = re.sub(r"\s*[™®©]", "", out["TITLE"]).strip()
     return out
 
 
