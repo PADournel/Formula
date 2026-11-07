@@ -41,13 +41,18 @@ Pas de Xbox One : aucun émulateur public ne fait tourner ses jeux (XWine1 n'est
 - PS Vita (Vita3K) : `.vpk`, paquet PSN `.pkg` ou jeu décompressé (dossier contenant `sce_sys/param.sfo` et `eboot.bin`) dans
   `roms/psvita`. Un `.pkg` a besoin de sa licence : soit déjà ajoutée dans Vita3K, soit posée à côté sous le même
   nom (`Jeu.pkg` + `Jeu.rif` ou `Jeu.work.bin`) ; elle doit correspondre exactement au paquet (même Content ID).
-  FORMULA lit le titre et les images du `.pkg` sans le déchiffrer.
+  FORMULA lit le titre et les images du `.pkg` sans le déchiffrer. Une mise à jour se pose à côté sous le nom
+  `Jeu (Update v1.04).pkg` : elle est installée une fois, juste après le jeu.
   Sur le Deck, FORMULA lance une copie extraite de l'AppImage (`~/Emulation/psvita/Vita3K-AppDir`, refaite quand
   l'AppImage change) : l'AppImage range ses shaders là où Vita3K ne les trouve pas, et le pilote graphique plantait. Vita3K installe le jeu au premier lancement puis le lance directement. Le firmware officiel
   (`PSVUPDAT.PUP` et `PSP2UPDAT.PUP`, téléchargeables gratuitement chez Sony) se place dans `bios/psvita` (PC) ou
   `~/Emulation/bios/psvita` (Deck) : FORMULA l'installe dans Vita3K, sans fenêtre, avant le premier jeu.
   Mode portable (dossier `portable` à côté de l'émulateur), console en français, sauvegardes dans `kDrive/Saves/PSVita`,
   Discord et recherche de mises à jour désactivés. Version publiée en continu : elle est repérée par sa date.
+- PS3, jeux PSN (RPCS3) : un dossier par jeu dans `roms/ps3` (`roms/ps3/Jeu (USA)/`) avec le ou les `.pkg` (jeu,
+  clé de déblocage…) et les licences `.rap`. Au premier lancement, FORMULA installe le firmware PS3 s'il manque
+  (`bios/ps3/PS3UPDAT.PUP`), installe les paquets dans RPCS3 sans fenêtre (`--headless --installpkg`), copie les
+  `.rap` dans `dev_hdd0/home/00000001/exdata`, puis lance le jeu installé. Titre et images viennent du jeu installé.
 
 ### PCSX2 debug (jeux PS2 cassés par les PCSX2 récents)
 

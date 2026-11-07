@@ -781,6 +781,74 @@ def scan_file(sysid, path):
     return g
 
 
+def pkg_content_id(path):
+    """Content ID d'un paquet PSN (en clair dans l'en-tête), ex. UP9000-NPUA80145_00-RATCHET550000001."""
+    with open(path, "rb") as f:
+        h = f.read(0x60)
+    return h[0x30:0x60].split(b"\0")[0].decode("ascii", "replace") if h[:4] == b"\x7fPKG" else None
+
+
+def rpcs3_root():
+    return EMU / "rpcs3" if IS_WIN else HOME / ".var/app/net.rpcs3.RPCS3/config/rpcs3"
+
+
+def scan_psn_folder(g, path):
+    """Jeu PSN PS3 : dossier roms/ps3/<Jeu>/ contenant le(s) .pkg (jeu, clé de déblocage…) et les licences
+    .rap. Installé dans RPCS3 au premier lancement (ps3_prepare) ; titre et images lus ensuite dans le jeu installé."""
+    pkgs = sorted(path.glob("*.pkg"), key=lambda p: -p.stat().st_size)
+    if not pkgs:
+        return None
+    cid = pkg_content_id(pkgs[0])
+    if not cid or len(cid) < 16:
+        return None
+    g["serial"], g["content_id"] = cid[7:16], cid
+    inst = rpcs3_root() / "dev_hdd0" / "game" / g["serial"]
+    g["launch"] = str(path)
+    if (inst / "PARAM.SFO").exists():
+        sfo = parse_sfo((inst / "PARAM.SFO").read_bytes())
+        g["title"] = sfo.get("TITLE") or g["title"]
+        for kind, fn in (("icon", "ICON0.PNG"), ("hero", "PIC1.PNG")):
+            if (inst / fn).exists():
+                g[kind] = save_asset(g["id"], kind, (inst / fn).read_bytes())
+    return g
+
+
+def ps3_cli(args):
+    """Commande RPCS3 sans fenêtre (installation du firmware ou d'un paquet)."""
+    if IS_WIN:
+        exe = resolve_exe(str(EMU / "rpcs3" / "rpcs3.exe"))
+        return [str(exe), "--headless", *args] if exe else None
+    return ["flatpak", "run", "--user", "net.rpcs3.RPCS3", "--headless", *args]
+
+
+def ps3_prepare(cmd, g):
+    """Jeu PSN : firmware installé si besoin, paquets installés et licences .rap copiées, puis lancement
+    de l'EBOOT installé."""
+    root, folder = rpcs3_root(), Path(g["launch"])
+    eboot = root / "dev_hdd0" / "game" / g["serial"] / "USRDIR" / "EBOOT.BIN"
+    run = lambda args, t: subprocess.run(ps3_cli(args), cwd=str(root) if IS_WIN else None, capture_output=True,
+                                         timeout=t, creationflags=NO_WINDOW)
+    if not ps3_cli([]):
+        return False, "Émulateur non installé"
+    if not (root / "dev_flash" / "vsh" / "module").is_dir():
+        pup = (BASE if IS_WIN else HOME / "Emulation") / "bios" / "ps3" / "PS3UPDAT.PUP"
+        if not pup.exists():
+            return False, "Firmware PS3 manquant (bios/ps3/PS3UPDAT.PUP)"
+        run(["--installfw", str(pup)], 900)
+    if not eboot.exists():
+        for pkg in sorted(folder.glob("*.pkg"), key=lambda p: -p.stat().st_size):   # le jeu, puis les clés
+            run(["--installpkg", str(pkg)], 3600)
+        if not eboot.exists():
+            return False, "Installation du paquet PSN impossible"
+    exdata = root / "dev_hdd0" / "home" / "00000001" / "exdata"
+    for rap in folder.glob("*.rap"):
+        exdata.mkdir(parents=True, exist_ok=True)
+        if not (exdata / rap.name).exists():
+            shutil.copy2(rap, exdata / rap.name)
+    cmd[:] = [str(eboot) if c == g["launch"] else c for c in cmd]
+    return True, "ok"
+
+
 def scan_folder(sysid, path):
     """Jeux PS3 (PS3_GAME/...) et PS4 (sce_sys/...) décompressés en dossier."""
     gid = game_id(path)
@@ -789,7 +857,7 @@ def scan_folder(sysid, path):
         base = path / "PS3_GAME" if (path / "PS3_GAME").is_dir() else path
         sfo_p, eboot = base / "PARAM.SFO", base / "USRDIR" / "EBOOT.BIN"
         if not sfo_p.exists():
-            return None
+            return scan_psn_folder(g, path)
         sfo = parse_sfo(sfo_p.read_bytes())
         g["serial"] = sfo.get("TITLE_ID")
         g["launch"] = str(eboot if eboot.exists() else path)
@@ -849,6 +917,8 @@ class Library:
                 if p.name.startswith("."):
                     continue
                 if p.is_file() and p.suffix.lower() in exts:
+                    if sysid == "psvita" and "(update" in p.name.lower():
+                        continue   # mise à jour d'un .pkg Vita, installée avec le jeu (vita_prepare)
                     yield sysid, p, "file"
                 elif p.is_dir():
                     if re.search(r"-(UPDATE|patch)$", p.name, re.I) or p.name == "pkg":
@@ -1560,6 +1630,10 @@ class Runner:
             if not ok:
                 return False, msg
             s = dict(s, env=dict(s.get("env", {}), **extra))
+        if g["system"] == "ps3" and g.get("content_id"):
+            ok, msg = ps3_prepare(cmd, g)
+            if not ok:
+                return False, msg
         # Fenêtres X11 (XWayland) : en mode Bureau, Steam ne reconnaît pas une fenêtre Wayland native
         # comme le jeu en cours et applique alors la config manette « Bureau » (souris/clavier).
         env = dict(os.environ, **s.get("env", {}))
@@ -1937,6 +2011,21 @@ def vita_prepare(cmd, g, env=None):
                        capture_output=True, timeout=3600, creationflags=NO_WINDOW, env=quiet_env)
         if not (fs / "ux0" / "app" / tid / "eboot.bin").exists():
             return False, "Installation du paquet impossible (la licence ne correspond peut-être pas au paquet)"
+    if g["launch"].lower().endswith(".pkg") and tid and (fs / "ux0" / "app" / tid / "eboot.bin").exists():
+        # mises à jour posées à côté : « Jeu (Update v1.04).pkg », installées une fois chacune
+        pkg = Path(g["launch"])
+        done_f = fs / "ux0" / "app" / tid / ".formula-updates"
+        done = set(done_f.read_text(encoding="utf-8").splitlines()) if done_f.exists() else set()
+        updates = sorted(p for p in pkg.parent.glob("*.pkg")
+                         if p.name.startswith(pkg.stem + " (") and "(update" in p.name.lower() and p.name not in done)
+        rif = vita_license(fs, g) if updates else None
+        for upd in updates:
+            if not rif:
+                break
+            subprocess.run([exe, "--pkg", str(upd), "--zrif", rif_to_zrif(rif)], cwd=str(Path(exe).parent),
+                           capture_output=True, timeout=3600, creationflags=NO_WINDOW, env=quiet_env)
+            done.add(upd.name)
+            done_f.write_text("\n".join(sorted(done)), encoding="utf-8")
     if tid and (fs / "ux0" / "app" / tid / "eboot.bin").exists():
         cmd[1:] = ["--frontend", "sdl", "-F", "-r", tid]
     else:
