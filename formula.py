@@ -718,9 +718,14 @@ def scan_file(sysid, path):
                 g["title"] = sfo.get("TITLE") or g["title"]
                 g["serial"] = sfo.get("TITLE_ID") or pkg.content_id[7:16]
                 g["content_id"] = pkg.content_id
-                g["icon"] = save_asset(gid, "icon", rd("sce_sys/icon0.png"))
-                g["hero"] = save_asset(gid, "hero", rd("sce_sys/pic0.png") or rd("sce_sys/livearea/contents/bg0.png")
-                                       or rd("sce_sys/livearea/contents/bg.png"))
+                # les images sont chiffrées avec la licence (PFS) dans la plupart des paquets :
+                # on les prend dans le jeu déjà installé par Vita3K, s'il l'est
+                app = vita_root() / "portable" / "fs" / "ux0" / "app" / (g["serial"] or "-") / "sce_sys"
+                png = lambda b: b if b and b[:8] == b"\x89PNG\r\n\x1a\n" else None
+                img = lambda rel: png(rd("sce_sys/" + rel)) or png((app / rel).read_bytes() if (app / rel).is_file() else None)
+                g["icon"] = save_asset(gid, "icon", img("icon0.png"))
+                g["hero"] = save_asset(gid, "hero", img("pic0.png") or img("livearea/contents/bg0.png")
+                                       or img("livearea/contents/bg.png"))
             finally:
                 pkg.close()
         if sysid in ("gba", "nds") and ext in (".gba", ".nds"):
@@ -858,7 +863,8 @@ class Library:
                     continue
                 gid = game_id(p)
                 old = self.games.get(gid)
-                if old and old.get("mtime") == st.st_mtime and old.get("size") == st.st_size:
+                pending_art = old and old.get("content_id") and not old.get("icon")   # .pkg Vita installé depuis ?
+                if old and old.get("mtime") == st.st_mtime and old.get("size") == st.st_size and not pending_art:
                     seen[gid] = old
                     continue
                 g = scan_file(sysid, p) if kind == "file" else scan_folder(sysid, p)
