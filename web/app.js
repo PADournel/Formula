@@ -5,6 +5,14 @@ const SYS_COLORS = { ps2: "#4c7dff", psp: "#a78bfa", ps3: "#ff4d6d", ps4: "#22b8
   xbox: "#5cb82e", x360: "#9bdc3c", psvita: "#2f7bff" };
 // logos à fond plein : affichés dans leurs couleurs d'origine plutôt qu'en silhouette blanche
 const COLOR_LOGOS = new Set(["nes", "gba"]);
+// width / height of each console's retail box front, so covers keep their real shape
+// DVD keep case 135x190 mm (PS2, GameCube, Wii, Xbox, Xbox 360), Blu-ray case 135x171.5 (PS3, PS4),
+// UMD case 104x180 (PSP), PS Vita case 105x135, DS case 125x137, NES box 5x7 in, N64 box 7x5 in (landscape),
+// GBA box 4.5x5 in, PS1 jewel case insert 120x120
+const BOX_RATIO = { ps2: 0.711, gc: 0.725, wii: 0.711, xbox: 0.72, x360: 0.711, ps3: 0.787, ps4: 0.787,
+  psp: 0.578, psvita: 0.778, nds: 0.912, nes: 0.714, n64: 1.4, gba: 0.9, ps1: 1 };
+const DVD_RATIO = 0.714;
+const boxRatio = (sys) => BOX_RATIO[sys] || DVD_RATIO;
 
 // ------------------------------------------------------------ langues (anglais par défaut)
 const I18N = {
@@ -190,11 +198,14 @@ function render(keepId) {
 
   const grid = $("#grid");
   grid.innerHTML = "";
+  // one console shown: columns sized for its box (same height as a DVD case, wide boxes up to x1.5)
+  grid.style.setProperty("--card-f", sysObj ? Math.min(1.5, boxRatio(state.view) / DVD_RATIO).toFixed(3) : 1);
   list.forEach((g, i) => {
     const c = document.createElement("div");
     c.className = "card";
     c.dataset.i = i;
     c.style.setProperty("--c", color(g.system));
+    c.style.setProperty("--ar", boxRatio(g.system));
     const url = coverUrl(g);
     c.innerHTML = `<div class="art">
         <div class="ph"><b>${esc(g.title)}</b><small>${sysShort(g.system)}</small></div>
@@ -240,6 +251,7 @@ function updateHero() {
     return;
   }
   const url = coverUrl(g);
+  $("#hero-cover").style.setProperty("--ar", boxRatio(g.system));
   $("#hero-title").textContent = g.title;
   $("#hero-tags").innerHTML = `<span class="tag sys" style="--c:${color(g.system)}">${sysShort(g.system)}</span>` +
     (g.region ? `<span class="tag">${esc(g.region)}</span>` : "");
@@ -411,6 +423,7 @@ function setRunning(id) {
   if (g) {
     $("#run-title").textContent = g.title;
     const url = coverUrl(g);
+    $("#run-cover").style.setProperty("--ar", boxRatio(g.system));
     $("#run-cover").style.backgroundImage = url ? `url("${url}")` : "";
   }
 }

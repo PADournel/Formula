@@ -84,7 +84,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 
 /* ---------- hero ---------- */
 #hero { display: flex; gap: 26px; align-items: flex-end; padding: 26px 30px 18px 0; min-height: 250px; }
-#hero-cover { width: 195px; aspect-ratio: 3 / 4.2; border-radius: 12px; background: var(--panel-solid) center / cover no-repeat; box-shadow: 0 24px 50px -12px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.08); flex: none; transition: background-image .3s; }
+#hero-cover { width: min(300px, calc(273px * var(--ar, 0.714))); aspect-ratio: var(--ar, 0.714); border-radius: 12px; background: var(--panel-solid) center / cover no-repeat; box-shadow: 0 24px 50px -12px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.08); flex: none; transition: background-image .3s; }
 #hero-info { min-width: 0; padding-bottom: 4px; }
 #hero-tags { display: flex; gap: 8px; margin-bottom: 10px; }
 .tag { font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 5px 10px; border-radius: 6px; background: rgba(255,255,255,.08); color: #d9dcec; }
@@ -104,10 +104,11 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 #section-head { display: flex; align-items: baseline; gap: 10px; padding: 4px 30px 12px 0; }
 #section-head h2 { font-family: Outfit, sans-serif; font-weight: 700; font-size: 17px; margin: 0; }
 #count { color: var(--dim); font-size: 13px; }
-#grid { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, var(--card-w)); gap: 22px 18px; padding: 8px 30px 40px 6px; align-content: start; scroll-behavior: smooth; scrollbar-width: none; outline: none; }
+#grid { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, calc(var(--card-w) * var(--card-f, 1))); gap: 22px 18px; padding: 8px 30px 40px 6px; align-content: start; scroll-behavior: smooth; scrollbar-width: none; outline: none; }
 #grid::-webkit-scrollbar { display: none; }
-.card { position: relative; width: var(--card-w); cursor: pointer; transition: transform .18s cubic-bezier(.2,.8,.2,1); }
-.card .art { position: relative; aspect-ratio: 3 / 4.2; border-radius: 12px; overflow: hidden; background: var(--panel-solid); box-shadow: 0 10px 24px -10px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.06); transition: box-shadow .2s; }
+.card { position: relative; width: calc(var(--card-w) * var(--card-f, 1)); display: flex; flex-direction: column; justify-content: flex-end; cursor: pointer; transition: transform .18s cubic-bezier(.2,.8,.2,1); }
+/* real box ratio of the console (--ar, set per card); every cover fits in a box as tall as a DVD case */
+.card .art { position: relative; aspect-ratio: var(--ar, 0.714); width: min(100%, calc(var(--card-w) * 1.4 * var(--ar, 0.714))); align-self: center; border-radius: 12px; overflow: hidden; background: var(--panel-solid); box-shadow: 0 10px 24px -10px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.06); transition: box-shadow .2s; }
 .card img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity .35s; }
 .card img.ok { opacity: 1; }
 .card .ph { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 12px; background: radial-gradient(120% 80% at 20% 0%, color-mix(in srgb, var(--c) 45%, transparent), transparent 60%), linear-gradient(160deg, #1a1d2b, #0c0d14); }
@@ -144,7 +145,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 /* ---------- surcouches ---------- */
 #running { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: rgba(4,5,8,.82); backdrop-filter: blur(14px); animation: fade .3s; }
 .run-card { display: flex; gap: 24px; align-items: center; padding: 26px 34px 26px 26px; border-radius: 20px; background: var(--panel); border: 1px solid var(--line); }
-#run-cover { width: 96px; aspect-ratio: 3/4.2; border-radius: 10px; background: #1a1d2b center / cover; box-shadow: 0 0 40px rgba(139,108,255,.4); }
+#run-cover { width: min(150px, calc(134px * var(--ar, 0.714))); aspect-ratio: var(--ar, 0.714); border-radius: 10px; background: #1a1d2b center / cover; box-shadow: 0 0 40px rgba(139,108,255,.4); }
 .run-label { font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--a2); font-weight: 700; }
 #run-title { font-family: Outfit, sans-serif; font-size: 28px; font-weight: 800; margin: 6px 0 8px; }
 .run-sub { color: var(--muted); font-size: 13px; }
