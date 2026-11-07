@@ -76,6 +76,8 @@ SYSTEMS = {
         "exts": [".iso", ".cso", ".pbp", ".chd"],
         "cmd": ["flatpak", "run", "--user", "--env=SDL_VIDEO_DRIVER=x11", "org.ppsspp.PPSSPP", "--fullscreen", "{path}"],
         "libretro": "Sony - PlayStation Portable",
+        # libretro n'a pas toutes les jaquettes PSP ; la version PS2 du même jeu a la même illustration
+        "libretro_fallback": "Sony - PlayStation 2",
     },
     "psvita": {
         "name": "PlayStation Vita", "short": "Vita", "order": 3.5,
@@ -843,13 +845,14 @@ def find_cover(g):
             tries.append(lambda reg=reg: (http_get(f"https://art.gametdb.com/wii/cover/{reg}/{serial}.png"), ".png"))
     if sysid == "x360" and serial:
         tries.append(lambda: xboxunity_cover(serial))
-    lr = SYSTEMS.get(sysid, {}).get("libretro")
-    if lr:
-        tries.append(lambda: libretro_cover(lr, g["title"], g.get("region")))
-        # le titre interne est parfois tronqué (« ACE COMBAT X ») : on retente avec le nom du fichier
-        stem = clean_name(Path(g["path"]).stem)
-        if norm(stem) != norm(g["title"]):
-            tries.append(lambda: libretro_cover(lr, stem, g.get("region")))
+    stem = clean_name(Path(g["path"]).stem)
+    for key in ("libretro", "libretro_fallback"):
+        lr = SYSTEMS.get(sysid, {}).get(key)
+        if lr:
+            tries.append(lambda lr=lr: libretro_cover(lr, g["title"], g.get("region")))
+            # le titre interne est parfois tronqué (« ACE COMBAT X ») : on retente avec le nom du fichier
+            if norm(stem) != norm(g["title"]):
+                tries.append(lambda lr=lr: libretro_cover(lr, stem, g.get("region")))
     for t in tries:
         try:
             res = t()
