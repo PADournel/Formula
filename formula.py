@@ -91,6 +91,8 @@ SYSTEMS = {
         "cwd": str(HOME / "Emulation/psvita"),
         "env": {"SDL_VIDEO_DRIVER": "x11", "SDL_VIDEODRIVER": "x11", "SDL_JOYSTICK_HIDAPI": "0"},
         "libretro": "Sony - PlayStation Vita",
+        # libretro n'a qu'une dizaine de jaquettes Vita : base HexFlow, une image par identifiant (PCSF00243…)
+        "cover_by_id": "https://raw.githubusercontent.com/Andiweli/HexFlow-Covers/main/Covers/PSVita/{serial}.png",
     },
     "ps3": {
         "name": "PlayStation 3", "short": "PS3", "order": 4,
@@ -1035,6 +1037,9 @@ def find_cover(g):
     if repo:
         for n in names:
             tries.append(lambda n=n: repo_cover(repo, n, g.get("region")))
+    by_id = SYSTEMS.get(sysid, {}).get("cover_by_id")
+    if by_id and serial and re.fullmatch(r"[A-Z0-9]{4,12}", serial):
+        tries.append(lambda: (http_get(by_id.format(serial=serial)), Path(by_id).suffix.lower()))
     for t in tries:
         try:
             res = t()
