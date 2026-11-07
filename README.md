@@ -68,7 +68,7 @@ FORMULA ne fait rien en douce. Liste exhaustive de ce qu'il fait :
 
 **Ce qui sort sur Internet** (rien d'autre, aucune télémétrie, aucune statistique)
 - Jaquettes : `art.gametdb.com`, `thumbnails.libretro.com`, `raw.githubusercontent.com` (dépôts xlenore/ps2-covers,
-  aldostools/Resources et dipubadatya/psp-covers-hd, dont la liste est lue via `api.github.com`), `xboxunity.net` (Xbox 360, recherche par identifiant du disque), une seule fois par jeu, stockées ensuite en local.
+  aldostools/Resources, dipubadatya/psp-covers-hd et Andiweli/HexFlow-Covers, dont la liste est lue via `api.github.com`), `xboxunity.net` (Xbox 360, recherche par identifiant du disque), une seule fois par jeu, stockées ensuite en local.
 - Installation d'un émulateur depuis Paramètres, uniquement quand tu coches la case : `api.github.com` et
   `github.com` (version officielle de l'émulateur), `dl.dolphin-emu.org`, ou Flathub sur le Deck.
   Installer PCSX2 télécharge aussi PCSX2 1.7.3780 (PCSX2 debug) depuis `github.com/PCSX2/pcsx2/releases`.
