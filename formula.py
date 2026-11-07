@@ -89,7 +89,10 @@ SYSTEMS = {
         "exts": [".vpk", ".pkg"], "folders": True,
         "cmd": [str(HOME / "Emulation/psvita/Vita3K-x86_64.AppImage"), "{path}"],
         "cwd": str(HOME / "Emulation/psvita"),
-        "env": {"SDL_VIDEO_DRIVER": "x11", "SDL_VIDEODRIVER": "x11", "SDL_JOYSTICK_HIDAPI": "0"},
+        # DISABLE_AUTO_UPDATES : l'AppImage propose sinon de télécharger un outil de mise à jour et de se
+        # remplacer elle-même (fenêtres au lancement) ; FORMULA gère les versions dans Paramètres
+        "env": {"SDL_VIDEO_DRIVER": "x11", "SDL_VIDEODRIVER": "x11", "SDL_JOYSTICK_HIDAPI": "0",
+                "DISABLE_AUTO_UPDATES": "1"},
         "libretro": "Sony - PlayStation Vita",
         # libretro n'a qu'une dizaine de jaquettes Vita : base HexFlow, une image par identifiant (PCSF00243…)
         "cover_by_id": "https://raw.githubusercontent.com/Andiweli/HexFlow-Covers/main/Covers/PSVita/{serial}.png",
@@ -1498,6 +1501,7 @@ def vita_prepare(cmd, g):
     portable = Path(exe).parent / "portable"
     vita_configure(portable)
     fs = portable / "fs"
+    quiet_env = {**os.environ, "DISABLE_AUTO_UPDATES": "1"}   # pas de fenêtre de mise à jour de l'AppImage
     if not (fs / "vs0").is_dir():
         pups = sorted(vita_bios().glob("*.PUP")) if vita_bios().is_dir() else []
         main = [p for p in pups if p.name.upper() == "PSVUPDAT.PUP"]
@@ -1505,14 +1509,14 @@ def vita_prepare(cmd, g):
             return False, "Firmware PS Vita manquant (bios/psvita/PSVUPDAT.PUP)"
         for pup in main + [p for p in pups if p not in main]:
             subprocess.run([exe, "--firmware", str(pup)], cwd=str(Path(exe).parent), capture_output=True,
-                           timeout=600, creationflags=NO_WINDOW)
+                           timeout=600, creationflags=NO_WINDOW, env=quiet_env)
     tid = g.get("serial")
     if g["launch"].lower().endswith(".pkg") and tid and not (fs / "ux0" / "app" / tid / "eboot.bin").exists():
         rif = vita_license(fs, g)
         if not rif:
             return False, f"Licence manquante pour {g.get('content_id') or tid} (fichier .rif ou work.bin)"
         subprocess.run([exe, "--pkg", g["launch"], "--zrif", rif_to_zrif(rif)], cwd=str(Path(exe).parent),
-                       capture_output=True, timeout=3600, creationflags=NO_WINDOW)
+                       capture_output=True, timeout=3600, creationflags=NO_WINDOW, env=quiet_env)
         if not (fs / "ux0" / "app" / tid / "eboot.bin").exists():
             return False, "Installation du paquet impossible (la licence ne correspond peut-être pas au paquet)"
     if tid and (fs / "ux0" / "app" / tid / "eboot.bin").exists():
