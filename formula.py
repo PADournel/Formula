@@ -17,6 +17,7 @@ import html
 import json
 import os
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -1122,9 +1123,11 @@ class Runner:
         elif not EMUS.installed(EMUS.for_system(g["system"])):
             return False, "Émulateur non installé"
         if g["system"] == "psvita":
-            ok, msg = vita_prepare(cmd, g)
+            extra = {}
+            ok, msg = vita_prepare(cmd, g, extra)
             if not ok:
                 return False, msg
+            s = dict(s, env=dict(s.get("env", {}), **extra))
         # Fenêtres X11 (XWayland) : en mode Bureau, Steam ne reconnaît pas une fenêtre Wayland native
         # comme le jeu en cours et applique alors la config manette « Bureau » (souris/clavier).
         env = dict(os.environ, **s.get("env", {}))
@@ -1494,7 +1497,7 @@ def vita_license(fs, g):
     return None
 
 
-def vita_prepare(cmd, g):
+def vita_prepare(cmd, g, env=None):
     """Complète la commande Vita3K : firmware installé si besoin, puis lancement direct du jeu
     (déjà installé : par son identifiant ; sinon installation puis lancement)."""
     exe = cmd[0]
@@ -1523,7 +1526,42 @@ def vita_prepare(cmd, g):
         cmd[1:] = ["--frontend", "sdl", "-F", "-r", tid]
     else:
         cmd[1:] = ["--frontend", "sdl", "-F", g["launch"]]
+    if not IS_WIN and env is not None:
+        runner = vita_appdir_runner(Path(exe))
+        if runner:
+            cmd[0] = str(runner)
+            env.update(APPDIR=str(runner.parent), APPIMAGE=str(exe))   # APPIMAGE : dossier portable à côté
     return True, "ok"
+
+
+def vita_appdir_runner(appimage):
+    """Deck : l'AppImage de Vita3K range ses shaders dans share/Vita3K/shaders-builtin alors que Vita3K les
+    cherche à côté de son exécutable (bin/) ; il envoie alors un shader vide au pilote, qui plante dès la
+    première image. On lance donc une copie extraite de l'AppImage, avec un lien bin/shaders-builtin.
+    Ré-extraite quand l'AppImage change (mise à jour depuis Paramètres)."""
+    root = appimage.parent / "Vita3K-AppDir"
+    st = appimage.stat()
+    stamp = f"{st.st_size}:{int(st.st_mtime)}"
+    marker = root / ".formula-source"
+    if not (marker.exists() and marker.read_text().strip() == stamp and (root / "AppRun").exists()):
+        tmp = appimage.parent / ".vita3k-extract"
+        shutil.rmtree(tmp, ignore_errors=True)
+        tmp.mkdir()
+        try:
+            subprocess.run([str(appimage), "--appimage-extract"], cwd=str(tmp), capture_output=True, timeout=600,
+                           env={**os.environ, "DISABLE_AUTO_UPDATES": "1"})
+            src = next((d for d in tmp.iterdir() if (d / "AppRun").exists()), None)
+            if not src:
+                return None
+            shutil.rmtree(root, ignore_errors=True)
+            src.rename(root)
+            marker.write_text(stamp)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+    link, shaders = root / "bin" / "shaders-builtin", root / "share" / "Vita3K" / "shaders-builtin"
+    if not link.exists() and shaders.is_dir():
+        link.symlink_to(Path("..") / "share" / "Vita3K" / "shaders-builtin")
+    return root / "AppRun"
 
 
 def app_dir(e):
@@ -1777,6 +1815,7 @@ class EmuManager:
         elif "appimage" in e:
             (app_dir(e) / e["appimage"]["file"]).unlink(missing_ok=True)
             (app_dir(e) / ".formula-version").unlink(missing_ok=True)
+            shutil.rmtree(app_dir(e) / "Vita3K-AppDir", ignore_errors=True)   # copie extraite (vita_appdir_runner)
         else:
             subprocess.run(["flatpak", "uninstall", "--user", "-y", "--noninteractive", e["flatpak"]],
                            check=True, capture_output=True, timeout=600)

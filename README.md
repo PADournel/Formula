@@ -38,7 +38,9 @@ Pas de Xbox One : aucun émulateur public ne fait tourner ses jeux (XWine1 n'est
 - PS Vita (Vita3K) : `.vpk`, paquet PSN `.pkg` ou jeu décompressé (dossier contenant `sce_sys/param.sfo` et `eboot.bin`) dans
   `roms/psvita`. Un `.pkg` a besoin de sa licence : soit déjà ajoutée dans Vita3K, soit posée à côté sous le même
   nom (`Jeu.pkg` + `Jeu.rif` ou `Jeu.work.bin`) ; elle doit correspondre exactement au paquet (même Content ID).
-  FORMULA lit le titre et les images du `.pkg` sans le déchiffrer. Vita3K installe le jeu au premier lancement puis le lance directement. Le firmware officiel
+  FORMULA lit le titre et les images du `.pkg` sans le déchiffrer.
+  Sur le Deck, FORMULA lance une copie extraite de l'AppImage (`~/Emulation/psvita/Vita3K-AppDir`, refaite quand
+  l'AppImage change) : l'AppImage range ses shaders là où Vita3K ne les trouve pas, et le pilote graphique plantait. Vita3K installe le jeu au premier lancement puis le lance directement. Le firmware officiel
   (`PSVUPDAT.PUP` et `PSP2UPDAT.PUP`, téléchargeables gratuitement chez Sony) se place dans `bios/psvita` (PC) ou
   `~/Emulation/bios/psvita` (Deck) : FORMULA l'installe dans Vita3K, sans fenêtre, avant le premier jeu.
   Mode portable (dossier `portable` à côté de l'émulateur), console en français, sauvegardes dans `kDrive/Saves/PSVita`,
