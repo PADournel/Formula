@@ -1042,6 +1042,7 @@ class PadReader:
     def __init__(self, runner):
         self.runner = runner
         self.fds = {}            # chemin -> fd
+        self.absr = {}           # fd -> {axe: (centre, demi-plage)} lus via EVIOCGABS
         self.held = set()        # boutons logiques enfoncés (sources confondues)
         self.src = {}            # (source, bouton) -> bool, pour combiner croix et stick
         self.muted = set()       # enfoncés pendant le jeu : ignorés jusqu'au relâchement
@@ -1084,10 +1085,15 @@ class PadReader:
                     want.add("/dev/input/" + ev.group(0))
         for p in list(self.fds):
             if p not in want:
-                os.close(self.fds.pop(p))
+                fd = self.fds.pop(p)
+                self.absr.pop(fd, None)
+                for (s, n) in [k for k in self.src if isinstance(k[0], tuple) and k[0][1] == fd]:
+                    self.set_src(s, n, False)
+                os.close(fd)
         for p in want - set(self.fds):
             try:
-                self.fds[p] = os.open(p, os.O_RDONLY | os.O_NONBLOCK)
+                fd = self.fds[p] = os.open(p, os.O_RDONLY | os.O_NONBLOCK)
+                self.absr[fd] = self.axis_ranges(fd)
             except OSError:
                 pass
 
@@ -1115,19 +1121,41 @@ class PadReader:
             return  # une autre fenêtre est au premier plan : elle garde la manette
         self.emit({"b": name, "v": 1 if new else 0})
 
-    def handle(self, etype, code, value):
+    @staticmethod
+    def axis_ranges(fd):
+        """Plage des axes X/Y du stick gauche. La manette virtuelle de Steam va de -32767 à
+        32767, mais une manette Xbox en Bluetooth vue en direct va de 0 à 65535 (centre 32768) :
+        sans normalisation, son stick paraît toujours poussé en bas à droite."""
+        out = {}
+        try:
+            import fcntl
+            for code in (0, 1):
+                buf = bytearray(24)
+                fcntl.ioctl(fd, 0x80184540 + code, buf)  # EVIOCGABS(code)
+                _, lo, hi, _, _, _ = struct.unpack("6i", buf)
+                if hi > lo:
+                    out[code] = ((lo + hi) / 2, (hi - lo) / 2)
+        except (OSError, ImportError):
+            pass
+        return out
+
+    def handle(self, etype, code, value, fd=None):
+        # une source par périphérique : la même manette peut apparaître deux fois
+        # (en direct et via Steam), leurs états ne doivent pas s'écraser
         if etype == 1 and code in self.KEYS:
-            self.set_src("btn", self.KEYS[code], value != 0)
+            self.set_src(("btn", fd), self.KEYS[code], value != 0)
         elif etype == 3 and code in (0x10, 0x11):      # croix (hat)
             neg, pos = ("left", "right") if code == 0x10 else ("up", "down")
-            self.set_src("hat", neg, value < 0)
-            self.set_src("hat", pos, value > 0)
+            self.set_src(("hat", fd), neg, value < 0)
+            self.set_src(("hat", fd), pos, value > 0)
         elif etype == 3 and code in (0, 1):            # stick gauche, avec hystérésis
+            mid, half = self.absr.get(fd, {}).get(code, (0, 32767))
+            value = (value - mid) * 32767 / half
             neg, pos = ("left", "right") if code == 0 else ("up", "down")
             for name, on in ((neg, value < 0), (pos, value > 0)):
-                cur = self.src.get(("stick", name), False)
+                cur = self.src.get((("stick", fd), name), False)
                 mag = abs(value)
-                self.set_src("stick", name, on and (mag > 9000 if cur else mag > 16000))
+                self.set_src(("stick", fd), name, on and (mag > 9000 if cur else mag > 16000))
 
     def check_resume(self):
         running = bool(self.runner.running())
@@ -1213,7 +1241,7 @@ class PadReader:
                     continue
                 for i in range(0, len(data) - self.EVT.size + 1, self.EVT.size):
                     _, _, etype, code, value = self.EVT.unpack_from(data, i)
-                    self.handle(etype, code, value)
+                    self.handle(etype, code, value, fd)
 
 
 # ---------------------------------------------------------------- émulateurs (Paramètres)
