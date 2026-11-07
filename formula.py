@@ -10,6 +10,7 @@ Petit serveur local (stdlib uniquement) qui :
 Pour ajouter un émulateur plus tard : ajouter une entrée dans SYSTEMS
 (ou dans ~/.config/formula/systems.json, même format).
 """
+import gzip
 import hashlib
 import html
 import json
@@ -76,8 +77,8 @@ SYSTEMS = {
         "exts": [".iso", ".cso", ".pbp", ".chd"],
         "cmd": ["flatpak", "run", "--user", "--env=SDL_VIDEO_DRIVER=x11", "org.ppsspp.PPSSPP", "--fullscreen", "{path}"],
         "libretro": "Sony - PlayStation Portable",
-        # libretro n'a pas toutes les jaquettes PSP ; la version PS2 du même jeu a la même illustration
-        "libretro_fallback": "Sony - PlayStation 2",
+        # libretro n'a pas toutes les jaquettes PSP : dépôt GitHub de jaquettes PSP aux noms No-Intro
+        "covers_repo": ("dipubadatya/psp-covers-hd", "main", "covers/"),
     },
     "psvita": {
         "name": "PlayStation Vita", "short": "Vita", "order": 3.5,
@@ -806,6 +807,50 @@ def libretro_cover(system, title, region_hint=None):
     return http_get(url), ".png"
 
 
+_repo_index = {}
+
+
+def repo_cover(repo, title, region_hint=None):
+    """Jaquette dans un dépôt GitHub public (fichiers nommés comme No-Intro), index mis en cache 14 jours."""
+    name, branch, prefix = repo
+    if name not in _repo_index:
+        cache = DATA / f"repo_{norm(name)}.json"
+        files = None
+        if cache.exists() and time.time() - cache.stat().st_mtime < 14 * 86400:
+            files = json.loads(cache.read_text())
+        else:
+            try:
+                # ~370 Ko en clair : demandé compressé (la lecture non compressée se coupait en route)
+                req = urllib.request.Request(f"https://api.github.com/repos/{name}/git/trees/{branch}?recursive=1",
+                                             headers={**UA, "Accept-Encoding": "gzip"})
+                with urllib.request.urlopen(req, timeout=40) as r:
+                    raw = r.read()
+                    if r.headers.get("Content-Encoding") == "gzip":
+                        raw = gzip.decompress(raw)
+                tree = json.loads(raw or b"{}")
+                files = sorted(t["path"] for t in tree.get("tree", [])
+                               if t.get("type") == "blob" and t["path"].startswith(prefix)
+                               and t["path"].lower().endswith((".jpg", ".jpeg", ".png", ".webp")))
+                if files:
+                    cache.write_text(json.dumps(files))
+            except Exception as e:
+                print("index de jaquettes indisponible", name, e, file=sys.stderr)
+                files = []
+        idx = {}
+        for f in files or []:
+            idx.setdefault(norm(Path(f).stem), []).append(f)
+        _repo_index[name] = idx
+    cands = list(_repo_index[name].get(norm(title)) or [])
+    if not cands:
+        return None
+    pref = ["France", "Europe", "World", "USA", "Japan"]
+    if region_hint == "NTSC-U":
+        pref = ["USA", "World", "Europe", "France", "Japan"]
+    cands.sort(key=lambda n: next((i for i, r in enumerate(pref) if f"({r}" in n or f", {r}" in n), 99))
+    url = f"https://raw.githubusercontent.com/{name}/{branch}/{urllib.parse.quote(cands[0])}"
+    return http_get(url, 40), Path(cands[0]).suffix.lower()
+
+
 def xboxunity_cover(title_id):
     """Xbox 360 : jaquette par identifiant de titre sur XboxUnity (libretro n'en a qu'une douzaine).
     Les images sont des jaquettes complètes (dos, tranche, face) : on garde la face, à droite."""
@@ -846,13 +891,16 @@ def find_cover(g):
     if sysid == "x360" and serial:
         tries.append(lambda: xboxunity_cover(serial))
     stem = clean_name(Path(g["path"]).stem)
-    for key in ("libretro", "libretro_fallback"):
-        lr = SYSTEMS.get(sysid, {}).get(key)
-        if lr:
-            tries.append(lambda lr=lr: libretro_cover(lr, g["title"], g.get("region")))
-            # le titre interne est parfois tronqué (« ACE COMBAT X ») : on retente avec le nom du fichier
-            if norm(stem) != norm(g["title"]):
-                tries.append(lambda lr=lr: libretro_cover(lr, stem, g.get("region")))
+    names = [g["title"]] + ([stem] if norm(stem) != norm(g["title"]) else [])
+    # le titre interne est parfois tronqué (« ACE COMBAT X ») : on retente avec le nom du fichier
+    lr = SYSTEMS.get(sysid, {}).get("libretro")
+    if lr:
+        for n in names:
+            tries.append(lambda n=n: libretro_cover(lr, n, g.get("region")))
+    repo = SYSTEMS.get(sysid, {}).get("covers_repo")
+    if repo:
+        for n in names:
+            tries.append(lambda n=n: repo_cover(repo, n, g.get("region")))
     for t in tries:
         try:
             res = t()
