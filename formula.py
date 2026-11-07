@@ -13,10 +13,12 @@ Pour ajouter un émulateur plus tard : ajouter une entrée dans SYSTEMS
 import base64
 import gzip
 import hashlib
+import hmac
 import html
 import json
 import os
 import re
+import secrets
 import shutil
 import struct
 import subprocess
@@ -252,10 +254,10 @@ def debug_game(g):
     return entry if isinstance(entry, dict) else None
 
 
-def ini_update(path, section, values):
+def ini_update(path, section, values, sep=" = "):
     """Écrit des clés dans une section d'un .ini façon PCSX2 (« clé = valeur »), sans toucher au reste."""
     path = Path(path)
-    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    lines = path.read_text(encoding="utf-8-sig").splitlines() if path.exists() else []
     start = next((i for i, l in enumerate(lines) if l.strip() == f"[{section}]"), None)
     if start is None:
         lines += ([""] if lines else []) + [f"[{section}]"]
@@ -265,10 +267,10 @@ def ini_update(path, section, values):
     for i in range(start + 1, end):
         k = lines[i].split("=", 1)[0].strip()
         if k in todo:
-            lines[i] = f"{k} = {todo.pop(k)}"
+            lines[i] = f"{k}{sep}{todo.pop(k)}"
     while end > start + 1 and not lines[end - 1].strip():
         end -= 1
-    lines[end:end] = [f"{k} = {v}" for k, v in todo.items()]
+    lines[end:end] = [f"{k}{sep}{v}" for k, v in todo.items()]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -278,7 +280,9 @@ def pcsx2_debug_configure(renderer="software"):
     principal, cartes mémoire séparées (dans kDrive) pour qu'une vieille version n'écrive jamais dans les
     cartes du PCSX2 principal."""
     d = pcsx2_debug_dir()
-    saves = HOME / "kDrive" / "Saves" / "PS2"
+    saves = PROFILES.saves_dir() / "PS2"      # profil actif (voir Profiles)
+    for sub in ("memcards-debug", "sstates-debug"):
+        (saves / sub).mkdir(parents=True, exist_ok=True)
     if IS_WIN:
         (d / "portable.ini").write_text("RunWizard=0\n", encoding="utf-8")
         ini, bios = d / "inis" / "PCSX2.ini", BASE / "bios" / "ps2"
@@ -1085,6 +1089,426 @@ def fetch_covers(lib):
             lib.save()
 
 
+# ---------------------------------------------------------------- profils
+#
+# Jusqu'à 4 profils (écran « Qui joue ? » au démarrage). Chaque profil a ses propres sauvegardes, rangées
+# dans kDrive (donc partagées entre le PC et le Deck) : kDrive/Saves/Profils/<profil>/<console>/…
+# La liste des profils (nom, couleur, compte parent + code) est dans kDrive/Saves/Profils/profiles.json.
+# Avant chaque lancement, FORMULA fait pointer les dossiers de sauvegarde de l'émulateur vers le profil
+# actif : liens (jonctions sous Windows) ou chemins dans ses réglages, voir save_targets().
+# Favoris, nombre de parties et dernière partie sont propres à chaque profil et à chaque appareil
+# (formula-data/profiles/<id>.json), car les identifiants de jeux diffèrent d'un appareil à l'autre.
+# Rien n'est jamais supprimé : un dossier réel trouvé à la place d'un lien est recopié puis mis de côté
+# (<nom>.avant-profils-<date>), un profil supprimé part dans Profils/_supprimes.
+
+SAVES_ROOT = HOME / "kDrive" / "Saves"
+MAX_PROFILES = 4
+PROFILE_COLORS = ["#8b6cff", "#22b8ff", "#2fbf71", "#ff8a3d"]
+# dossiers par console dans kDrive/Saves (ceux d'avant les profils, recopiés dans le profil « P.A.D »)
+CONSOLE_SAVE_DIRS = ["PS2", "PSP", "PSVita", "PS3", "PS4", "NES", "N64", "GBA", "DS", "GameCube", "Wii",
+                     "Xbox", "Xbox 360"]
+FIRST_PROFILE = "P.A.D"
+XEMU_HDD = "https://github.com/xemu-project/xemu-hdd-image/releases/download/1.0/xbox_hdd.qcow2.zip"
+
+
+def is_link(p):
+    return p.is_symlink() or (IS_WIN and os.path.isjunction(p))
+
+
+def link_target(p):
+    try:
+        t = os.readlink(p)
+    except OSError:
+        return None
+    return os.path.normcase(os.path.normpath(t[4:] if t.startswith("\\\\?\\") else t))
+
+
+def make_link(link, target):
+    if IS_WIN:
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], check=True,
+                       capture_output=True, creationflags=NO_WINDOW)
+    else:
+        link.symlink_to(target)
+
+
+def copy_missing(src, dst):
+    """Recopie src dans dst sans rien écraser (fichiers absents seulement), dates conservées."""
+    n = 0
+    for root, dirs, files in os.walk(src):
+        rel = Path(root).relative_to(src)
+        (dst / rel).mkdir(parents=True, exist_ok=True)
+        for f in files:
+            d = dst / rel / f
+            if not d.exists():
+                shutil.copy2(Path(root) / f, d)
+                n += 1
+    return n
+
+
+def sha1_file(p):
+    h = hashlib.sha1()
+    with open(p, "rb") as f:
+        for b in iter(lambda: f.read(1 << 20), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def point_link(link, target):
+    """Fait de « link » (dossier de l'émulateur) un lien vers « target » (dossier du profil)."""
+    link, target = Path(link), Path(target)
+    target.mkdir(parents=True, exist_ok=True)
+    if is_link(link):
+        if link_target(link) == os.path.normcase(os.path.normpath(str(target))):
+            return
+        os.rmdir(link) if IS_WIN else link.unlink()      # retire le lien seul, jamais son contenu
+    elif link.is_dir():
+        if any(link.iterdir()):
+            # vrai dossier (émulateur réinstallé…) : contenu recopié dans le profil puis mis de côté
+            copy_missing(link, target)
+            link.rename(link.with_name(link.name + ".avant-profils-" + time.strftime("%Y%m%d-%H%M%S")))
+        else:
+            link.rmdir()
+    link.parent.mkdir(parents=True, exist_ok=True)
+    make_link(link, target)
+
+
+def save_targets(sysid):
+    """Où chaque émulateur range ses sauvegardes : ("link", dossier de l'émulateur, sous-dossier du profil)
+    ou ("ini", fichier, section, {clé: (sous-dossier, format)}, séparateur)."""
+    q2 = lambda p: f'"{p.as_posix()}"'
+    q1 = lambda p: f"'{p}'"
+    raw = str
+    if IS_WIN:
+        dol = EMU / "dolphin" / "Dolphin-x64" / "User"
+        mgba = sorted(EMU.glob("mgba/*/mGBA.exe"))
+        t = {
+            "ps2": [("ini", EMU / "pcsx2/inis/PCSX2.ini", "Folders",
+                     {"MemoryCards": ("PS2/memcards", raw), "Savestates": ("PS2/sstates", raw)}, " = ")],
+            "psp": [("link", EMU / "ppsspp/memstick/PSP/SAVEDATA", "PSP/SAVEDATA"),
+                    ("link", EMU / "ppsspp/memstick/PSP/PPSSPP_STATE", "PSP/PPSSPP_STATE")],
+            "ps3": [("link", EMU / "rpcs3/dev_hdd0/home/00000001/savedata", "PS3/savedata")],
+            "ps4": [("link", EMU / "shadps4/user/savedata", "PS4/savedata")],
+            "psvita": [("link", EMU / "vita3k/portable/fs/ux0/user/00/savedata", "PSVita")],
+            "gba": [("ini", mgba[-1].parent / "config.ini", "ports.qt",
+                     {"savegamePath": ("GBA/saves", raw), "savestatePath": ("GBA/states", raw)}, "=")] if mgba else [],
+            "nds": [("ini", EMU / "melonds/melonDS.toml", "Instance0",
+                     {"SaveFilePath": ("DS/saves", q2), "SavestatePath": ("DS/states", q2)}, " = ")],
+            "gc": [("link", dol / "GC", "GameCube"), ("link", dol / "Wii", "Wii")],
+            "n64": [("ini", EMU / "rmg/Config/mupen64plus.cfg", "Rosalie's Mupen GUI Core",
+                     {"SaveSRAMPath": ("N64/Game", q2), "SaveStatePath": ("N64/State", q2)}, " = ")],
+            "xbox": [("ini", EMU / "xemu/xemu.toml", "sys.files",
+                      {"eeprom_path": ("Xbox/eeprom.bin", q1), "hdd_path": ("Xbox/xbox_hdd.qcow2", q1)}, " = ")],
+            "x360": [("link", EMU / "xenia/content", "Xbox 360")],
+        }
+    else:
+        v = HOME / ".var" / "app"
+        dol = v / "org.DolphinEmu.dolphin-emu/data/dolphin-emu"
+        t = {
+            "ps2": [("ini", v / "net.pcsx2.PCSX2/config/PCSX2/inis/PCSX2.ini", "Folders",
+                     {"MemoryCards": ("PS2/memcards", raw), "Savestates": ("PS2/sstates", raw)}, " = ")],
+            "psp": [("link", v / "org.ppsspp.PPSSPP/config/ppsspp/PSP/SAVEDATA", "PSP/SAVEDATA"),
+                    ("link", v / "org.ppsspp.PPSSPP/config/ppsspp/PSP/PPSSPP_STATE", "PSP/PPSSPP_STATE")],
+            "ps3": [("link", v / "net.rpcs3.RPCS3/config/rpcs3/dev_hdd0/home/00000001/savedata", "PS3/savedata")],
+            "ps4": [("link", HOME / "Emulation/ps4/user/savedata", "PS4/savedata")],
+            "psvita": [("link", HOME / "Emulation/psvita/portable/fs/ux0/user/00/savedata", "PSVita")],
+            "gba": [("ini", v / "io.mgba.mGBA/config/mgba/config.ini", "ports.qt",
+                     {"savegamePath": ("GBA/saves", raw), "savestatePath": ("GBA/states", raw)}, "=")],
+            "nds": [("ini", v / "net.kuribo64.melonDS/config/melonDS/melonDS.toml", "Instance0",
+                     {"SaveFilePath": ("DS/saves", q2), "SavestatePath": ("DS/states", q2)}, " = ")],
+            "gc": [("link", dol / "GC", "GameCube"), ("link", dol / "Wii", "Wii")],
+            # RMG range Game/ et State/ dans data/RMG/Save (chemins de ses réglages)
+            "n64": [("link", v / "com.github.Rosalie241.RMG/data/RMG/Save", "N64")],
+            "nes": [("link", v / "ca._0ldsk00l.Nestopia/data/nestopia/save", "NES/save"),
+                    ("link", v / "ca._0ldsk00l.Nestopia/data/nestopia/state", "NES/state")],
+            "xbox": [("ini", v / "app.xemu.xemu/data/xemu/xemu/xemu.toml", "sys.files",
+                      {"eeprom_path": ("Xbox/eeprom.bin", q1), "hdd_path": ("Xbox/xbox_hdd.qcow2", q1)}, " = ")],
+            # Xbox 360 (Deck) : --content_root sur la ligne de commande, voir Runner.launch
+        }
+    t["wii"] = t.get("gc", [])          # même Dolphin pour GameCube et Wii
+    return t.get(sysid, [])
+
+
+def flatpak_id(cmd):
+    if cmd and cmd[0] == "flatpak":
+        return next((c for c in cmd[2:] if not c.startswith("-")), None)
+    return None
+
+
+def write_settings(s):
+    DATA.mkdir(parents=True, exist_ok=True)
+    SETTINGS_FILE.write_text(json.dumps(s, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+class Profiles:
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.current = None          # profil choisi sur l'écran « Qui joue ? » (aucun au démarrage)
+        self.fails = {}              # id -> (erreurs de code de suite, bloqué jusqu'à)
+        self.root = SAVES_ROOT / "Profils" if SAVES_ROOT.exists() else DATA / "profils"
+        self.file = self.root / "profiles.json"
+        self.local = DATA / "profiles"
+
+    # ---- liste partagée (kDrive)
+    def load(self):
+        try:
+            d = json.loads(self.file.read_text(encoding="utf-8"))
+            return d if isinstance(d.get("profiles"), list) else {"profiles": []}
+        except Exception:
+            return {"profiles": []}
+
+    def save(self, d):
+        self.root.mkdir(parents=True, exist_ok=True)
+        tmp = self.file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, self.file)
+
+    def get(self, pid):
+        return next((p for p in self.load()["profiles"] if p["id"] == pid), None)
+
+    def public(self):
+        out = [{k: p.get(k) for k in ("id", "name", "color", "parent")} for p in self.load()["profiles"]]
+        cur = self.current if any(p["id"] == self.current for p in out) else None
+        return {"profiles": out, "current": cur, "last": load_settings().get("profile"),
+                "max": MAX_PROFILES, "parents": any(p["parent"] for p in out)}
+
+    # ---- code parent (4 chiffres, jamais stocké en clair)
+    @staticmethod
+    def hash_pin(pin, salt=None):
+        salt = salt or secrets.token_hex(16)
+        h = hashlib.pbkdf2_hmac("sha256", pin.encode(), bytes.fromhex(salt), 200_000).hex()
+        return {"salt": salt, "hash": h}
+
+    @staticmethod
+    def valid_pin(pin):
+        return isinstance(pin, str) and re.fullmatch(r"\d{4}", pin) is not None
+
+    def check_pin(self, p, pin):
+        """Vrai si le code est bon ; 5 erreurs de suite bloquent le profil 30 s."""
+        n, until = self.fails.get(p["id"], (0, 0))
+        if time.time() < until:
+            return False
+        ok = bool(self.valid_pin(pin) and p.get("pin") and
+                  hmac.compare_digest(self.hash_pin(pin, p["pin"]["salt"])["hash"], p["pin"]["hash"]))
+        if ok:
+            self.fails.pop(p["id"], None)
+        else:
+            n += 1
+            self.fails[p["id"]] = (0, time.time() + 30) if n >= 5 else (n, 0)
+        return ok
+
+    def manager_ok(self, pin):
+        """Ajouter / modifier / supprimer un profil : code d'un compte parent, dès qu'il en existe un."""
+        parents = [p for p in self.load()["profiles"] if p.get("parent")]
+        return not parents or any(self.check_pin(p, pin) for p in parents)
+
+    # ---- actions
+    def select(self, pid, pin=None):
+        p = self.get(pid)
+        if not p:
+            return False, "unknown"
+        if p.get("parent") and not self.check_pin(p, pin):
+            return False, "pin"
+        self.current = pid
+        s = load_settings()
+        s["profile"] = pid
+        write_settings(s)
+        return True, "ok"
+
+    def dir_name(self, name, d):
+        base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip(" .") or "Profil"
+        used = {p["dir"].lower() for p in d["profiles"]} | {"_supprimes"}
+        n, out = 1, base
+        while out.lower() in used or (self.root / out).exists() and n < 50:
+            n += 1
+            out = f"{base} {n}"
+        return out
+
+    def create(self, name, parent=False, pin=None, pid=None, reuse_dir=False):
+        with self.lock:
+            d = self.load()
+            name = str(name or "").strip()[:20]
+            if not name:
+                return False, "name"
+            if len(d["profiles"]) >= MAX_PROFILES:
+                return False, "full"
+            if parent and not self.valid_pin(pin):
+                return False, "pin"
+            used = {p["color"] for p in d["profiles"]}
+            folder = name if reuse_dir else self.dir_name(name, d)
+            p = {"id": pid or secrets.token_hex(4), "name": name, "dir": folder,
+                 "color": next((c for c in PROFILE_COLORS if c not in used), PROFILE_COLORS[0]),
+                 "parent": bool(parent), "pin": self.hash_pin(pin) if parent else None, "created": int(time.time())}
+            d["profiles"].append(p)
+            (self.root / p["dir"]).mkdir(parents=True, exist_ok=True)
+            self.save(d)
+            return True, p["id"]
+
+    def update(self, pid, name=None, parent=None, pin=None):
+        with self.lock:
+            d = self.load()
+            p = next((x for x in d["profiles"] if x["id"] == pid), None)
+            if not p:
+                return False, "unknown"
+            if name is not None:
+                name = str(name).strip()[:20]
+                if not name:
+                    return False, "name"
+                p["name"] = name       # le dossier garde son nom : les sauvegardes ne bougent pas
+            if parent is True:
+                if pin is not None and not self.valid_pin(pin):
+                    return False, "pin"
+                if pin is None and not p.get("pin"):
+                    return False, "pin"
+                p["parent"] = True
+                if pin is not None:
+                    p["pin"] = self.hash_pin(pin)
+            elif parent is False:
+                p["parent"], p["pin"] = False, None
+            self.save(d)
+            return True, "ok"
+
+    def delete(self, pid):
+        with self.lock:
+            d = self.load()
+            p = next((x for x in d["profiles"] if x["id"] == pid), None)
+            if not p:
+                return False, "unknown"
+            if len(d["profiles"]) <= 1:
+                return False, "last"
+            src = self.root / p["dir"]
+            if src.exists():
+                dst = self.root / "_supprimes" / f'{p["dir"]}-{time.strftime("%Y%m%d-%H%M%S")}'
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(dst))     # sauvegardes mises de côté, pas effacées
+            d["profiles"].remove(p)
+            self.save(d)
+            if self.current == pid:
+                self.current = None
+            return True, "ok"
+
+    # ---- sauvegardes
+    def saves_dir(self, pid=None):
+        p = self.get(pid or self.current) or (self.load()["profiles"] or [None])[0]
+        return self.root / p["dir"] if p else SAVES_ROOT
+
+    def apply(self, sysid, cmd=None):
+        """Fait pointer les sauvegardes de l'émulateur de cette console vers le profil actif."""
+        base = self.saves_dir()
+        for t in save_targets(sysid):
+            if t[0] == "link":
+                point_link(t[1], base / t[2])
+            elif t[1].exists():
+                vals = {}
+                for k, (sub, fmt) in t[3].items():
+                    target = base / sub
+                    (target.parent if target.suffix else target).mkdir(parents=True, exist_ok=True)
+                    vals[k] = fmt(target)
+                ini_update(t[1], t[2], vals, t[4])
+        if sysid == "xbox":
+            self.xbox_hdd(base / "Xbox" / "xbox_hdd.qcow2")
+        app = flatpak_id(cmd)
+        if app:
+            self.flatpak_access(app)
+        return base
+
+    @staticmethod
+    def xbox_hdd(hdd):
+        """Nouveau profil : disque dur Xbox vierge publié par le projet xemu (sans contenu Microsoft)."""
+        if hdd.exists():
+            return
+        import io
+        import zipfile
+        hdd.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with zipfile.ZipFile(io.BytesIO(http_get(XEMU_HDD, timeout=120))) as z:
+                tmp = hdd.with_suffix(".part")
+                tmp.write_bytes(z.read("xbox_hdd.qcow2"))
+                os.replace(tmp, hdd)
+        except Exception as e:
+            print("disque Xbox vierge indisponible :", e, flush=True)
+
+    def flatpak_access(self, app):
+        """Deck : un flatpak n'a accès qu'aux dossiers déclarés ; on lui ouvre Profils/ (une seule fois)."""
+        f = HOME / ".local/share/flatpak/overrides" / app
+        try:
+            if str(self.root) in f.read_text(encoding="utf-8"):
+                return
+        except OSError:
+            pass
+        subprocess.run(["flatpak", "override", "--user", f"--filesystem={self.root}", app], capture_output=True)
+
+    # ---- favoris et parties, par profil (sur cet appareil)
+    def stats_file(self, pid):
+        return self.local / f"{pid}.json"
+
+    def stats(self, pid=None):
+        pid = pid or self.current
+        if not pid:
+            return {}
+        try:
+            return json.loads(self.stats_file(pid).read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    def save_stats(self, data, pid=None):
+        pid = pid or self.current
+        self.local.mkdir(parents=True, exist_ok=True)
+        tmp = self.stats_file(pid).with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, self.stats_file(pid))
+
+    def bump(self, gid, played=False, fav=None):
+        if not self.current:
+            return {}
+        with self.lock:
+            s = self.stats()
+            g = s.setdefault(gid, {})
+            if played:
+                g["plays"] = g.get("plays", 0) + 1
+                g["last_played"] = time.time()
+            if fav is not None:
+                g["fav"] = fav
+            self.save_stats(s)
+            return g
+
+    # ---- migration : tout ce qui existait avant les profils va dans « P.A.D »
+    def migrate(self, lib):
+        marker = DATA / "profiles-migrated.json"
+        if marker.exists():
+            return
+        with self.lock:
+            d = self.load()
+            p = next((x for x in d["profiles"] if x["id"] == "pad"), None)
+            if not p:
+                # créé sur l'autre appareil puis synchronisé par kDrive, ou à créer ici
+                ok, _ = self.create(FIRST_PROFILE, pid="pad", reuse_dir=True)
+                p = self.get("pad")
+            dst = self.root / p["dir"]
+            report = {"profile": p["id"], "at": time.time(), "copied": {}, "mismatch": []}
+            for name in CONSOLE_SAVE_DIRS:
+                src = SAVES_ROOT / name
+                if src.is_dir() and not is_link(src):
+                    report["copied"][name] = copy_missing(src, dst / name)
+                    # vérification : chaque fichier d'origine doit se retrouver à l'identique dans le profil
+                    for root, _, files in os.walk(src):
+                        for f in files:
+                            a = Path(root) / f
+                            b = dst / name / a.relative_to(src)
+                            if not b.exists() or sha1_file(a) != sha1_file(b):
+                                report["mismatch"].append(str(a))   # version déjà présente gardée
+            with lib.lock:
+                stats = {gid: {k: g[k] for k in ("fav", "plays", "last_played") if g.get(k)}
+                         for gid, g in lib.games.items() if g.get("fav") or g.get("plays") or g.get("last_played")}
+            if stats and not self.stats_file(p["id"]).exists():
+                self.save_stats(stats, p["id"])
+            DATA.mkdir(parents=True, exist_ok=True)
+            marker.write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+            print("profils : données recopiées dans", dst, report["copied"], flush=True)
+
+
+PROFILES = Profiles()
+
+
 # ---------------------------------------------------------------- lancement
 
 class Runner:
@@ -1104,6 +1528,8 @@ class Runner:
         g = lib.games.get(gid)
         if not g:
             return False, "Jeu introuvable"
+        if not PROFILES.current:
+            return False, "Choisis d'abord un profil"
         s = SYSTEMS[g["system"]]
         cmd = [c.replace("{path}", g["launch"]) for c in s["cmd"]]
         cwd = s.get("cwd")
@@ -1122,6 +1548,12 @@ class Runner:
             cmd[0], cwd = str(exe), str(exe.parent)
         elif not EMUS.installed(EMUS.for_system(g["system"])):
             return False, "Émulateur non installé"
+        # sauvegardes de l'émulateur -> dossier du profil actif
+        try:
+            saves = PROFILES.apply(g["system"], cmd)
+        except Exception as e:
+            return False, f"Sauvegardes du profil inaccessibles : {e}"
+        cmd = [("--content_root=" + str(saves / "Xbox 360")) if c.startswith("--content_root=") else c for c in cmd]
         if g["system"] == "psvita":
             extra = {}
             ok, msg = vita_prepare(cmd, g, extra)
@@ -1136,10 +1568,7 @@ class Runner:
                                      stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                      creationflags=NO_WINDOW)
         self.game = gid
-        with lib.lock:
-            g["plays"] = g.get("plays", 0) + 1
-            g["last_played"] = time.time()
-            lib.save()
+        PROFILES.bump(gid, played=True)
         return True, "ok"
 
 
@@ -1461,21 +1890,7 @@ def vita_configure(portable):
               "discord-rich-presence": "false"}
     lines += [f"{k}: {v}" for k, v in wanted.items() if k not in keys]
     cfg.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    saves = HOME / "kDrive" / "Saves" / "PSVita"
-    link = portable / "fs" / "ux0" / "user" / "00" / "savedata"
-    if saves.parent.exists():
-        saves.mkdir(exist_ok=True)
-        link.parent.mkdir(parents=True, exist_ok=True)
-        if link.is_dir() and not link.is_symlink() and not (IS_WIN and os.path.isjunction(link)):
-            if any(link.iterdir()):
-                return              # sauvegardes déjà présentes : on n'y touche pas
-            link.rmdir()
-        if not link.exists():
-            if IS_WIN:
-                subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(saves)], check=True,
-                               capture_output=True, creationflags=NO_WINDOW)
-            else:
-                link.symlink_to(saves)
+    # sauvegardes (ux0/user/00/savedata) : lien vers le profil actif, posé par Profiles.apply au lancement
 
 
 def vita_license(fs, g):
@@ -1857,21 +2272,27 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
         if path == "/api/library":
+            stats = PROFILES.stats()          # favoris et parties du profil actif
             with LIB.lock:
                 games = [{k: g.get(k) for k in ("id", "system", "title", "serial", "region", "cover", "icon",
-                                                "hero", "added", "plays", "last_played", "fav", "size")}
+                                                "hero", "added", "size")}
                          for g in LIB.games.values()]
+            for g in games:
+                st = stats.get(g["id"], {})
+                g.update(plays=st.get("plays"), last_played=st.get("last_played"), fav=bool(st.get("fav")))
             systems = [{"id": k, "name": v["name"], "short": v["short"], "order": v.get("order", 99)}
                        for k, v in SYSTEMS.items()]
             return self.send(200, {"games": games, "systems": systems, "scanning": LIB.scanning,
                                    "running": RUN.running(), "version": VERSION, "platform": PLATFORM,
-                                   "settings": load_settings()})
+                                   "settings": load_settings(), "profile": PROFILES.current})
         if path == "/api/events":
             return self.events()
         if path == "/api/sync":
             return self.send(200, sync_status_for_ui())
         if path == "/api/emulators":
             return self.send(200, {"emulators": EMUS.listing(), "disk": EMUS.disk_usage()})
+        if path == "/api/profiles":
+            return self.send(200, PROFILES.public())
         if path.startswith("/covers/"):
             return self.static(COVERS, path[len("/covers/"):], cache=True)
         rel = path.lstrip("/") or "index.html"
@@ -1924,16 +2345,16 @@ class Handler(BaseHTTPRequestHandler):
                 s["lang"] = body["lang"]
             if isinstance(body.get("fullscreen"), bool):   # Windows : lu par FORMULA.exe au démarrage
                 s["fullscreen"] = body["fullscreen"]
-            DATA.mkdir(parents=True, exist_ok=True)
-            SETTINGS_FILE.write_text(json.dumps(s, ensure_ascii=False, indent=1), encoding="utf-8")
+            write_settings(s)
             return self.send(200, s)
         if path == "/api/fav":
-            with LIB.lock:
-                g = LIB.games.get(body.get("id"))
-                if g:
-                    g["fav"] = not g.get("fav")
-                    LIB.save()
-            return self.send(200, {"ok": bool(g), "fav": bool(g and g.get("fav"))})
+            gid = body.get("id")
+            if gid not in LIB.games or not PROFILES.current:
+                return self.send(409, {"ok": False})
+            st = PROFILES.bump(gid, fav=not PROFILES.stats().get(gid, {}).get("fav"))
+            return self.send(200, {"ok": True, "fav": bool(st.get("fav"))})
+        if path.startswith("/api/profiles/"):
+            return self.profiles(path.rsplit("/", 1)[-1], body)
         if path == "/api/quit":
             self.send(200, {"ok": True})
             def bye():
@@ -1942,6 +2363,34 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=bye, daemon=True).start()
             return
         self.send(404, {"error": "not found"})
+
+    def profiles(self, action, body):
+        """Profils : choisir (code si compte parent), ajouter, modifier, supprimer. Dès qu'un compte parent
+        existe, ajouter / modifier / supprimer demande le code d'un parent (« auth »)."""
+        if RUN.running():
+            return self.send(409, {"ok": False, "error": "running"})
+        pid = body.get("id")
+        if action == "select":
+            ok, err = PROFILES.select(pid, body.get("pin"))
+        elif action == "logout":
+            PROFILES.current, ok, err = None, True, "ok"
+        elif action == "auth":           # vérifie le code parent avant d'ouvrir la gestion des profils
+            ok, err = PROFILES.manager_ok(body.get("auth")), "auth"
+        elif action in ("create", "update", "delete"):
+            if not PROFILES.manager_ok(body.get("auth")):
+                return self.send(403, {"ok": False, "error": "auth"})
+            if action == "create":
+                ok, err = PROFILES.create(body.get("name"), bool(body.get("parent")), body.get("pin"))
+            elif action == "update":
+                parent = body.get("parent")
+                ok, err = PROFILES.update(pid, body.get("name"), parent if isinstance(parent, bool) else None,
+                                          body.get("pin"))
+            else:
+                ok, err = PROFILES.delete(pid)
+        else:
+            return self.send(404, {"error": "not found"})
+        return self.send(200 if ok else 409, dict(PROFILES.public(), ok=ok, error=None if ok else err,
+                                                  created=err if ok and action == "create" else None))
 
 
 # ---------------------------------------------------------------- synchro entre appareils
@@ -2261,6 +2710,10 @@ def main():
     if "--host" in sys.argv:
         pid = int(sys.argv[sys.argv.index("--host") + 1])
         threading.Thread(target=watch_host, args=(pid,), daemon=True).start()
+    try:
+        PROFILES.migrate(LIB)      # une seule fois par appareil : données d'avant les profils -> « P.A.D »
+    except Exception as e:
+        print("profils : migration impossible :", e, flush=True)
     threading.Thread(target=LIB.scan, daemon=True).start()
     threading.Thread(target=PAD.loop, daemon=True).start()
     srv = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
