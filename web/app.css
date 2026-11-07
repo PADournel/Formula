@@ -43,11 +43,11 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 #bg-fade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(6,7,11,.15) 0%, rgba(6,7,11,.75) 42%, var(--bg) 70%); }
 
 /* ---------- rail ---------- */
-#rail { grid-row: 1 / 3; display: flex; flex-direction: column; padding: 22px 14px 16px; background: linear-gradient(180deg, rgba(10,11,18,.85), rgba(10,11,18,.6)); border-right: 1px solid var(--line); backdrop-filter: blur(20px); }
+#rail { grid-row: 1 / 3; display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding: 22px 14px 16px; background: linear-gradient(180deg, rgba(10,11,18,.85), rgba(10,11,18,.6)); border-right: 1px solid var(--line); backdrop-filter: blur(20px); }
 .logo { display: flex; align-items: center; gap: 10px; padding: 0 8px 22px; }
 .logo .mark { width: 30px; height: 30px; filter: drop-shadow(0 0 12px rgba(139,108,255,.55)); }
 .logo span { font-family: Outfit, sans-serif; font-weight: 900; font-style: italic; font-size: 23px; letter-spacing: .14em; background: linear-gradient(90deg, #fff 30%, #b9a8ff 70%, #7fe6f5); -webkit-background-clip: text; background-clip: text; color: transparent; }
-#nav { display: flex; flex-direction: column; gap: 3px; overflow-y: auto; }
+#nav { display: flex; flex-direction: column; gap: 3px; flex: 0 1 auto; min-height: 0; overflow-y: auto; scroll-padding: 8px 0; }
 .nav-label { font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); padding: 16px 12px 6px; }
 .nav-item { display: flex; align-items: center; gap: 11px; width: 100%; padding: 10px 12px; border-radius: 10px; font-size: 14.5px; font-weight: 500; color: var(--muted); text-align: left; position: relative; transition: background .15s, color .15s; }
 .nav-item i { font-style: normal; width: 22px; text-align: center; font-size: 15px; opacity: .9; }
