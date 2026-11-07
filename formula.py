@@ -10,6 +10,7 @@ Petit serveur local (stdlib uniquement) qui :
 Pour ajouter un émulateur plus tard : ajouter une entrée dans SYSTEMS
 (ou dans ~/.config/formula/systems.json, même format).
 """
+import base64
 import gzip
 import hashlib
 import html
@@ -82,9 +83,10 @@ SYSTEMS = {
     },
     "psvita": {
         "name": "PlayStation Vita", "short": "Vita", "order": 3.5,
-        # .vpk (archive d'installation) ou dossier de jeu décompressé (sce_sys/param.sfo + eboot.bin).
+        # .vpk (archive d'installation), .pkg PSN (avec sa licence, voir vita_license) ou dossier de jeu
+        # décompressé (sce_sys/param.sfo + eboot.bin).
         # Vita3K installe le jeu au premier lancement, puis le lance directement par son identifiant.
-        "exts": [".vpk"], "folders": True,
+        "exts": [".vpk", ".pkg"], "folders": True,
         "cmd": [str(HOME / "Emulation/psvita/Vita3K-x86_64.AppImage"), "{path}"],
         "cwd": str(HOME / "Emulation/psvita"),
         "env": {"SDL_VIDEO_DRIVER": "x11", "SDL_VIDEODRIVER": "x11", "SDL_JOYSTICK_HIDAPI": "0"},
@@ -410,6 +412,118 @@ def parse_sfo(data):
     return out
 
 
+# ---------------------------------------------------------------- paquets PS Vita (.pkg)
+# Seule la couche extérieure du paquet est lue ici (clés publiques des paquets), pour le titre,
+# l'identifiant et les images. Le contenu du jeu reste chiffré : Vita3K l'installe avec la licence.
+
+_AES_S = [0] * 256
+
+
+def _aes_init():
+    p = q = 1
+    while True:
+        p = p ^ ((p << 1) & 0xFF) ^ (0x1B if p & 0x80 else 0)
+        q ^= q << 1
+        q ^= q << 2
+        q ^= q << 4
+        q &= 0xFF
+        if q & 0x80:
+            q ^= 0x09
+        r = lambda n: ((q << n) | (q >> (8 - n))) & 0xFF
+        _AES_S[p] = q ^ r(1) ^ r(2) ^ r(3) ^ r(4) ^ 0x63
+        if p == 1:
+            break
+    _AES_S[0] = 0x63
+
+
+_aes_init()
+
+
+def _xt(a):
+    return ((a << 1) ^ 0x1B) & 0xFF if a & 0x80 else a << 1
+
+
+def aes_expand(key):
+    w, rcon = list(key), 1
+    for i in range(16, 176, 4):
+        t = w[i - 4:i]
+        if i % 16 == 0:
+            t = [_AES_S[t[1]] ^ rcon, _AES_S[t[2]], _AES_S[t[3]], _AES_S[t[0]]]
+            rcon = _xt(rcon)
+        w += [w[i - 16 + j] ^ t[j] for j in range(4)]
+    return w
+
+
+def aes_encrypt(rk, blk):
+    s = [blk[i] ^ rk[i] for i in range(16)]
+    for rnd in range(1, 11):
+        s = [_AES_S[b] for b in s]
+        s = [s[(i + 4 * (i % 4)) % 16] for i in range(16)]
+        if rnd != 10:
+            n = []
+            for c in range(4):
+                a = s[4 * c:4 * c + 4]
+                t = a[0] ^ a[1] ^ a[2] ^ a[3]
+                n += [a[j] ^ t ^ _xt(a[j] ^ a[(j + 1) % 4]) for j in range(4)]
+            s = n
+        s = [s[i] ^ rk[16 * rnd + i] for i in range(16)]
+    return bytes(s)
+
+
+PKG_KEYS = {1: bytes.fromhex("07F2C68290B50D2C33818D709B60E62B"),
+            2: bytes.fromhex("E31A70C9CE1DD72BF3C0622963F2ECCB"),
+            3: bytes.fromhex("423ACA3A2BD5649F9686ABAD6FD8801F"),
+            4: bytes.fromhex("AF07FD59652527BAF13388668CE11C7B")}
+
+
+class VitaPkg:
+    def __init__(self, path):
+        self.f = open(path, "rb")
+        h = self.f.read(0x100)
+        if h[:4] != b"\x7fPKG":
+            raise ValueError("pas un paquet PKG")
+        self.count = struct.unpack(">I", h[0x14:0x18])[0]
+        self.doff = struct.unpack(">Q", h[0x20:0x28])[0]
+        self.content_id = h[0x30:0x60].split(b"\0")[0].decode("ascii", "replace")
+        iv, kt = h[0x70:0x80], h[0xE7] & 7
+        key = PKG_KEYS[1] if kt == 1 else aes_encrypt(aes_expand(PKG_KEYS[kt]), iv)
+        self.rk, self.iv = aes_expand(key), int.from_bytes(iv, "big")
+
+    def close(self):
+        self.f.close()
+
+    def read(self, off, size):
+        start = off - off % 16
+        self.f.seek(self.doff + start)
+        data = self.f.read(size + off % 16)
+        out = bytearray()
+        for i in range(0, len(data), 16):
+            ks = aes_encrypt(self.rk, ((self.iv + (start + i) // 16) % (1 << 128)).to_bytes(16, "big"))
+            out += bytes(a ^ b for a, b in zip(data[i:i + 16], ks))
+        return bytes(out[off % 16: off % 16 + size])
+
+    def files(self):
+        if getattr(self, "_files", None) is not None:
+            return self._files
+        tbl = self.read(0, 32 * self.count)
+        out = {}
+        for i in range(self.count):
+            no, ns, do, ds = struct.unpack(">IIQQ", tbl[32 * i:32 * i + 24])
+            out[self.read(no, ns).decode("utf-8", "replace").lower()] = (do, ds)
+        self._files = out
+        return out
+
+    def file(self, name, limit=8 << 20):
+        ent = self.files().get(name.lower())
+        return self.read(ent[0], ent[1]) if ent and 0 < ent[1] <= limit else None
+
+
+def rif_to_zrif(rif):
+    """Licence .rif / work.bin (512 octets) -> zRIF (format attendu par Vita3K --zrif)."""
+    c = zlib.compressobj(9, zlib.DEFLATED, 10)
+    return base64.b64encode(c.compress(rif) + c.flush()).decode()
+
+
 def read_pbp(path):
     with open(path, "rb") as f:
         h = f.read(40)
@@ -595,6 +709,20 @@ def scan_file(sysid, path):
                 g["serial"] = sfo.get("TITLE_ID")
                 g["icon"] = save_asset(gid, "icon", rd("sce_sys/icon0.png"))
                 g["hero"] = save_asset(gid, "hero", rd("sce_sys/pic0.png") or rd("sce_sys/livearea/contents/bg.png"))
+        if sysid == "psvita" and ext == ".pkg":
+            pkg = VitaPkg(path)
+            try:
+                files = pkg.files()
+                rd = lambda n: pkg.read(*files[n]) if n in files and 0 < files[n][1] <= 8 << 20 else None
+                sfo = parse_sfo(rd("sce_sys/param.sfo"))
+                g["title"] = sfo.get("TITLE") or g["title"]
+                g["serial"] = sfo.get("TITLE_ID") or pkg.content_id[7:16]
+                g["content_id"] = pkg.content_id
+                g["icon"] = save_asset(gid, "icon", rd("sce_sys/icon0.png"))
+                g["hero"] = save_asset(gid, "hero", rd("sce_sys/pic0.png") or rd("sce_sys/livearea/contents/bg0.png")
+                                       or rd("sce_sys/livearea/contents/bg.png"))
+            finally:
+                pkg.close()
         if sysid in ("gba", "nds") and ext in (".gba", ".nds"):
             with open(path, "rb") as f:
                 h = f.read(0x200)
@@ -1333,6 +1461,25 @@ def vita_configure(portable):
                 link.symlink_to(saves)
 
 
+def vita_license(fs, g):
+    """Licence d'un .pkg : déjà ajoutée dans Vita3K (ux0/license/<ID>/<content_id>.rif), ou posée à côté
+    du paquet (<nom>.rif ou <nom>.work.bin). Celle posée à côté est recopiée dans Vita3K."""
+    tid, cid = g.get("serial"), g.get("content_id") or ""
+    lic = fs / "ux0" / "license" / tid
+    if cid and (lic / f"{cid}.rif").exists():
+        return (lic / f"{cid}.rif").read_bytes()
+    pkg = Path(g["launch"])
+    for cand in (pkg.with_suffix(".rif"), pkg.with_suffix(".work.bin")):
+        if not cand.exists():
+            continue
+        data = cand.read_bytes()
+        if len(data) in (512, 1024) and (not cid or cid.encode() in data[:0x60]):
+            lic.mkdir(parents=True, exist_ok=True)
+            (lic / f"{cid or tid}.rif").write_bytes(data)
+            return data
+    return None
+
+
 def vita_prepare(cmd, g):
     """Complète la commande Vita3K : firmware installé si besoin, puis lancement direct du jeu
     (déjà installé : par son identifiant ; sinon installation puis lancement)."""
@@ -1349,6 +1496,14 @@ def vita_prepare(cmd, g):
             subprocess.run([exe, "--firmware", str(pup)], cwd=str(Path(exe).parent), capture_output=True,
                            timeout=600, creationflags=NO_WINDOW)
     tid = g.get("serial")
+    if g["launch"].lower().endswith(".pkg") and tid and not (fs / "ux0" / "app" / tid / "eboot.bin").exists():
+        rif = vita_license(fs, g)
+        if not rif:
+            return False, f"Licence manquante pour {g.get('content_id') or tid} (fichier .rif ou work.bin)"
+        subprocess.run([exe, "--pkg", g["launch"], "--zrif", rif_to_zrif(rif)], cwd=str(Path(exe).parent),
+                       capture_output=True, timeout=3600, creationflags=NO_WINDOW)
+        if not (fs / "ux0" / "app" / tid / "eboot.bin").exists():
+            return False, "Installation du paquet impossible (la licence ne correspond peut-être pas au paquet)"
     if tid and (fs / "ux0" / "app" / tid / "eboot.bin").exists():
         cmd[1:] = ["--frontend", "sdl", "-F", "-r", tid]
     else:

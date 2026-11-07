@@ -35,8 +35,10 @@ Pas de Xbox One : aucun émulateur public ne fait tourner ses jeux (XWine1 n'est
 - Xbox 360 (Xenia Canary) : `.iso`, `.zar`, ou jeu extrait (dossier contenant `default.xex`) dans `roms/x360`.
   Aucun fichier système nécessaire. Mode portable, contenu et sauvegardes dans `kDrive/Saves/Xbox 360`,
   Discord désactivé. Sur le Deck, Xenia est l'AppImage Linux officielle (expérimentale, Vulkan).
-- PS Vita (Vita3K) : `.vpk` ou jeu décompressé (dossier contenant `sce_sys/param.sfo` et `eboot.bin`) dans
-  `roms/psvita`. Vita3K installe le jeu au premier lancement puis le lance directement. Le firmware officiel
+- PS Vita (Vita3K) : `.vpk`, paquet PSN `.pkg` ou jeu décompressé (dossier contenant `sce_sys/param.sfo` et `eboot.bin`) dans
+  `roms/psvita`. Un `.pkg` a besoin de sa licence : soit déjà ajoutée dans Vita3K, soit posée à côté sous le même
+  nom (`Jeu.pkg` + `Jeu.rif` ou `Jeu.work.bin`) ; elle doit correspondre exactement au paquet (même Content ID).
+  FORMULA lit le titre et les images du `.pkg` sans le déchiffrer. Vita3K installe le jeu au premier lancement puis le lance directement. Le firmware officiel
   (`PSVUPDAT.PUP` et `PSP2UPDAT.PUP`, téléchargeables gratuitement chez Sony) se place dans `bios/psvita` (PC) ou
   `~/Emulation/bios/psvita` (Deck) : FORMULA l'installe dans Vita3K, sans fenêtre, avant le premier jeu.
   Mode portable (dossier `portable` à côté de l'émulateur), console en français, sauvegardes dans `kDrive/Saves/PSVita`,
