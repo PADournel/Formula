@@ -270,7 +270,12 @@ function applyFocus(scroll = true) {
   } else {
     const items = railItems();
     state.ni = Math.max(0, Math.min(state.ni, items.length - 1));
-    items[state.ni] && items[state.ni].classList.add("focus");
+    const it = items[state.ni];
+    if (it) {
+      it.classList.add("focus");
+      // the console column follows the gamepad / keyboard selection
+      if (scroll) it.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
   }
   updateHero();
 }
