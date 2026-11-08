@@ -849,6 +849,26 @@ def ps3_prepare(cmd, g):
     return True, "ok"
 
 
+def ps3_disc_updates(g):
+    """Jeu disque en dossier : les mises à jour posées dans son dossier (« Jeu (Update v1.01).pkg ») sont
+    installées une fois dans RPCS3, qui les applique ensuite au lancement du disque."""
+    folder = Path(g["path"])
+    pkgs = sorted(folder.glob("*.pkg")) if folder.is_dir() else []
+    if not pkgs or not ps3_cli([]):
+        return
+    root = rpcs3_root()
+    done_f = root / ".formula-pkgs"
+    done = set(done_f.read_text(encoding="utf-8").splitlines()) if done_f.exists() else set()
+    for pkg in pkgs:
+        key = f"{g.get('serial')}/{pkg.name}"
+        if key in done:
+            continue
+        subprocess.run(ps3_cli(["--installpkg", str(pkg)]), cwd=str(root) if IS_WIN else None,
+                       capture_output=True, timeout=3600, creationflags=NO_WINDOW)
+        done.add(key)
+        done_f.write_text("\n".join(sorted(done)), encoding="utf-8")
+
+
 def scan_folder(sysid, path):
     """Jeux PS3 (PS3_GAME/...) et PS4 (sce_sys/...) décompressés en dossier."""
     gid = game_id(path)
@@ -1634,6 +1654,8 @@ class Runner:
             ok, msg = ps3_prepare(cmd, g)
             if not ok:
                 return False, msg
+        elif g["system"] == "ps3":
+            ps3_disc_updates(g)
         # Fenêtres X11 (XWayland) : en mode Bureau, Steam ne reconnaît pas une fenêtre Wayland native
         # comme le jeu en cours et applique alors la config manette « Bureau » (souris/clavier).
         env = dict(os.environ, **s.get("env", {}))
