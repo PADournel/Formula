@@ -859,12 +859,16 @@ def ps3_disc_updates(g):
     root = rpcs3_root()
     done_f = root / ".formula-pkgs"
     done = set(done_f.read_text(encoding="utf-8").splitlines()) if done_f.exists() else set()
-    for pkg in pkgs:
+    sfo = root / "dev_hdd0" / "game" / str(g.get("serial")) / "PARAM.SFO"
+    for pkg in pkgs:   # ordre des noms = ordre des versions (v1.01, v1.02…), certaines exigent la précédente
         key = f"{g.get('serial')}/{pkg.name}"
         if key in done:
             continue
+        before = sfo.stat().st_mtime if sfo.exists() else None
         subprocess.run(ps3_cli(["--installpkg", str(pkg)]), cwd=str(root) if IS_WIN else None,
                        capture_output=True, timeout=3600, creationflags=NO_WINDOW)
+        if not sfo.exists() or sfo.stat().st_mtime == before:
+            break      # refusée (ex. version précédente manquante) : retentée au prochain lancement
         done.add(key)
         done_f.write_text("\n".join(sorted(done)), encoding="utf-8")
 
