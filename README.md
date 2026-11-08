@@ -53,6 +53,8 @@ Pas de Xbox One : aucun émulateur public ne fait tourner ses jeux (XWine1 n'est
   clé de déblocage…) et les licences `.rap`. Au premier lancement, FORMULA installe le firmware PS3 s'il manque
   (`bios/ps3/PS3UPDAT.PUP`), installe les paquets dans RPCS3 sans fenêtre (`--headless --installpkg`), copie les
   `.rap` dans `dev_hdd0/home/00000001/exdata`, puis lance le jeu installé. Titre et images viennent du jeu installé.
+- PS3, mises à jour des jeux disque : posées dans le dossier du jeu (`roms/ps3/Jeu (USA)/Jeu (USA) (Update v1.01).pkg`,
+  à côté de `PS3_GAME`), elles sont installées une fois dans RPCS3 avant le lancement ; RPCS3 les applique au disque.
 
 ### PCSX2 debug (jeux PS2 cassés par les PCSX2 récents)
 
