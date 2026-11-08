@@ -1986,7 +1986,7 @@ def vita_configure(portable):
     keys = {l.split(":", 1)[0].strip() for l in lines if ":" in l and not l.startswith((" ", "#"))}
     wanted = {"sys-lang": "2",                 # français
               "sys-button": "1",               # croix pour valider
-              "initial-setup": "true", "show-welcome": "false", "check-for-updates": "false",
+              "initial-setup": "true", "show-welcome": "false", "check-for-updates": "false", "check-for-updates-mode": "0",
               "discord-rich-presence": "false"}
     lines += [f"{k}: {v}" for k, v in wanted.items() if k not in keys]
     cfg.write_text("\n".join(lines) + "\n", encoding="utf-8")
