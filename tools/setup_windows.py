@@ -74,7 +74,6 @@ def pcsx2():
     ini_set(ini, "Folders", {"Bios": BIOS / "ps2", "MemoryCards": SAVES / "PS2" / "memcards",
                              "Savestates": SAVES / "PS2" / "sstates"})
     ini_set(ini, "GameList", {"RecursivePaths": ROMS / "ps2"})
-    ini_set(ini, "AutoUpdater", {"CheckAtStartup": "false"})
 
 
 def ppsspp():
@@ -95,7 +94,6 @@ def rpcs3():
     (d / "input_configs" / "global" / "Default.yml").write_text(
         "Player 1 Input:\n  Handler: XInput\n  Device: XInput Pad #0\n", encoding="utf-8")
     junction(d / "dev_hdd0" / "home" / "00000001" / "savedata", SAVES / "PS3" / "savedata")
-    ini_set(d / "GuiConfigs" / "CurrentSettings.ini", "Meta", {"checkUpdateStart": "false"}, sep="=")
     cfg = d / "config.yml"
     if cfg.exists():
         cfg.write_text(re.sub(r"(\n  Language: ).*", r"\1French", cfg.read_text(encoding="utf-8"), count=1),
@@ -118,8 +116,7 @@ def mgba():
     s = SAVES / "GBA"
     (s / "saves").mkdir(parents=True, exist_ok=True)
     (s / "states").mkdir(parents=True, exist_ok=True)
-    ini_set(cfg, "ports.qt", {"savegamePath": s / "saves", "savestatePath": s / "states", "fullscreen": "1",
-                                 "updateAutoCheck": "0"}, sep="=")
+    ini_set(cfg, "ports.qt", {"savegamePath": s / "saves", "savestatePath": s / "states", "fullscreen": "1"}, sep="=")
     # manette XInput vue par SDL : A=0 B=1 X=2 Y=3 LB=4 RB=5 Back=6 Start=7, croix sur le chapeau 0
     keys = {"keyA": 1, "keyB": 0, "keyL": 4, "keyR": 5, "keySelect": 6, "keyStart": 7,
             "hat0Up": 6, "hat0Right": 4, "hat0Down": 7, "hat0Left": 5,
@@ -152,7 +149,6 @@ def dolphin():
     ini_set(cfg / "Dolphin.ini", "Core", {"SelectedLanguage": "2", "SIDevice0": "6"})
     ini_set(cfg / "Dolphin.ini", "General", {"ISOPath0": ROMS / "wii", "ISOPath1": ROMS / "gc", "ISOPaths": "2"})
     ini_set(cfg / "Dolphin.ini", "Analytics", {"PermissionAsked": "True", "Enabled": "False"})
-    ini_set(cfg / "Dolphin.ini", "AutoUpdate", {"UpdateTrack": ""})   # pas de recherche de mise à jour
     dev = "XInput/0/Gamepad"
     gc = {"Device": dev, "Buttons/A": "`Button A`", "Buttons/B": "`Button X`", "Buttons/X": "`Button B`",
           "Buttons/Y": "`Button Y`", "Buttons/Z": "`Shoulder R`", "Buttons/Start": "`Start`",
@@ -197,7 +193,6 @@ def rmg():
         prof.update({f"{k}_Name": f'"{n}"', f"{k}_InputType": f'"{t}"', f"{k}_Data": f'"{dd}"',
                      f"{k}_ExtraData": f'"{e}"'})
     ini_set(cfg, "Rosalie's Mupen GUI - Input Plugin Profile 0", prof)
-    ini_set(cfg, "Rosalie's Mupen GUI", {"CheckForUpdates": "False"})
 
 
 XEMU_HDD = "https://github.com/xemu-project/xemu-hdd-image/releases/download/1.0/xbox_hdd.qcow2.zip"
