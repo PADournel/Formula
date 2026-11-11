@@ -807,6 +807,57 @@ def rpcs3_root():
     return EMU / "rpcs3" if IS_WIN else HOME / ".var/app/net.rpcs3.RPCS3/config/rpcs3"
 
 
+# Noms SDL connus (RPCS3 les suffixe d'un numéro : « Steam Deck Controller 1 »)
+SDL_PAD_NAMES = {("28de", "1205"): "Steam Deck Controller",
+                 ("045e", "0b12"): "Xbox Series X Controller", ("045e", "0b13"): "Xbox Series X Controller"}
+
+
+def rpcs3_pick_pad():
+    """Linux : manette du joueur 1 de RPCS3 (handler SDL), choisie au lancement.
+    RPCS3, lancé hors de Steam, voit les manettes physiques sous leur nom SDL et n'accepte qu'un nom
+    exact : manette externe (Xbox Bluetooth…) si elle est branchée, sinon la manette du Deck."""
+    names = dict(SDL_PAD_NAMES)
+    logs = HOME / ".var/app/net.rpcs3.RPCS3/cache/rpcs3"
+    for f in (logs / "RPCS3.log.gz", logs / "RPCS3.log"):   # noms vus par RPCS3 lors des lancements précédents
+        try:
+            txt = (gzip.open(f, "rt", errors="replace") if f.suffix == ".gz" else open(f, errors="replace")).read()
+        except OSError:
+            continue
+        for m in re.finditer(r"Found game pad \d+: .*?name='([^']*)'.*?vid=0x([0-9a-f]+), pid=0x([0-9a-f]+)", txt):
+            names[(m.group(2).zfill(4), m.group(3).zfill(4))] = m.group(1)
+    external = []
+    try:
+        blocks = Path("/proc/bus/input/devices").read_text(errors="replace").split("\n\n")
+    except OSError:
+        blocks = []
+    for b in blocks:
+        m = re.search(r"Vendor=([0-9a-f]{4}) Product=([0-9a-f]{4})", b)
+        if not m or not re.search(r"Handlers=.*\bjs\d", b):
+            continue
+        vp = (m.group(1), m.group(2))
+        if vp[0] == "28de":          # manette du Deck ou manette virtuelle de Steam
+            continue
+        n = re.search(r'N: Name="([^"]*)"', b)
+        external.append(names.get(vp) or (n.group(1) if n else ""))
+    return (external[0] if external and external[0] else "Steam Deck Controller") + " 1"
+
+
+def rpcs3_set_pad():
+    """Écrit la manette choisie dans les profils d'entrées de RPCS3 (global et par jeu), joueur 1 en SDL."""
+    if IS_WIN:
+        return
+    dev = rpcs3_pick_pad().replace('"', "")
+    for f in (rpcs3_root() / "input_configs").glob("*/*.yml"):
+        try:
+            txt = f.read_text(encoding="utf-8")
+            new = re.sub(r'(Player 1 Input:\n  Handler: SDL\n  Device: ).*', lambda m: m.group(1) + f'"{dev}"',
+                         txt, count=1)
+            if new != txt:
+                f.write_text(new, encoding="utf-8")
+        except OSError:
+            pass
+
+
 def scan_psn_folder(g, path):
     """Jeu PSN PS3 : dossier roms/ps3/<Jeu>/ contenant le(s) .pkg (jeu, clé de déblocage…) et les licences
     .rap. Installé dans RPCS3 au premier lancement (ps3_prepare) ; titre et images lus ensuite dans le jeu installé."""
@@ -1971,6 +2022,8 @@ class Runner:
                 return False, msg
         elif g["system"] == "ps3":
             ps3_disc_updates(g)
+        if g["system"] == "ps3":
+            rpcs3_set_pad()
         # Fenêtres X11 (XWayland) : en mode Bureau, Steam ne reconnaît pas une fenêtre Wayland native
         # comme le jeu en cours et applique alors la config manette « Bureau » (souris/clavier).
         env = dict(os.environ, **s.get("env", {}))
