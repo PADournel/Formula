@@ -269,7 +269,8 @@ class Host : Form
         s.IsPasswordAutosaveEnabled = false;
         s.IsGeneralAutofillEnabled = false;
         s.AreHostObjectsAllowed = false;
-        // un seul message accepté de la page : "fullscreen:1" ou "fullscreen:0" (réglage Affichage)
+        // messages acceptés de la page : "fullscreen:1" / "fullscreen:0" (réglage Affichage),
+        // "caps?" (ce que sait faire la fenêtre) et "pick-image" (image d'un profil, réponse "picked:<chemin>")
         s.IsWebMessageEnabled = true;
         s.IsBuiltInErrorPageEnabled = true;
         s.IsReputationCheckingRequired = false;   // SmartScreen : rien n'est envoyé pour une page locale
@@ -300,11 +301,40 @@ class Host : Form
             try { m = a.TryGetWebMessageAsString(); } catch { return; }
             if (m == "fullscreen:1") SetFullscreen(true);
             else if (m == "fullscreen:0") SetFullscreen(false);
+            else if (m == "caps?") c.PostWebMessageAsString("caps:pick-image");
+            else if (m == "pick-image") BeginInvoke((MethodInvoker)delegate { PickImage(); });
         };
         // clavier directement à la page (F11, flèches…) dès l'ouverture et à chaque retour sur la fenêtre
         c.NavigationCompleted += delegate { web.Focus(); };
         Activated += delegate { web.Focus(); };
         c.Navigate(origin);
+    }
+
+    // ------------------------------------------------------------ image d'un profil
+    // Explorateur de fichiers de Windows, devant la fenêtre FORMULA ; le chemin choisi est renvoyé à la
+    // page ("picked:" vide si annulé), qui le passe au serveur. La manette y tape au clavier (serveur).
+    bool picking;
+
+    void PickImage()
+    {
+        if (picking) return;
+        picking = true;
+        string path = "";
+        try
+        {
+            using (OpenFileDialog d = new OpenFileDialog())
+            {
+                d.Title = "Image du profil (1000 x 1000, JPEG ou PNG)";
+                d.Filter = "Images JPEG / PNG|*.jpg;*.jpeg;*.png";
+                d.InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+                d.CheckFileExists = true;
+                if (d.ShowDialog(this) == DialogResult.OK) path = d.FileName;
+            }
+        }
+        catch { }
+        picking = false;
+        try { web.CoreWebView2.PostWebMessageAsString("picked:" + path); } catch { }
+        web.Focus();
     }
 
     // ------------------------------------------------------------ fenêtre / plein écran

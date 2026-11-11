@@ -1378,6 +1378,73 @@ def write_settings(s):
     SETTINGS_FILE.write_text(json.dumps(s, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
+AVATAR_MAX = 20 * 1024 * 1024     # image de profil : 20 Mo au plus (conseillé : 1000 x 1000, JPEG ou PNG)
+
+
+def image_info(data):
+    """("png" | "jpg", largeur, hauteur) pour une image PNG ou JPEG, sinon None (taille 0 si illisible)."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
+        w, h = struct.unpack(">II", data[16:24])
+        return "png", w, h
+    if data[:3] != b"\xff\xd8\xff":
+        return None
+    i = 2
+    while i + 9 < len(data):
+        if data[i] != 0xFF:
+            i += 1
+            continue
+        m = data[i + 1]
+        if m == 0xFF or m == 0x01 or 0xD0 <= m <= 0xD9:
+            i += 1 if m == 0xFF else 2
+            continue
+        seg = struct.unpack(">H", data[i + 2:i + 4])[0]
+        if 0xC0 <= m <= 0xCF and m not in (0xC4, 0xC8, 0xCC):     # SOFn : dimensions
+            h, w = struct.unpack(">HH", data[i + 5:i + 9])
+            return "jpg", w, h
+        i += 2 + seg
+    return "jpg", 0, 0
+
+
+def pick_image_dialog(title):
+    """Ouvre l'explorateur de fichiers du système pour choisir une image (JPEG ou PNG).
+    Renvoie le chemin choisi, "" si annulé, None si aucun sélecteur n'est disponible.
+    Pendant qu'il est ouvert, la manette tape au clavier (voir PadReader.keys_on)."""
+    env = dict(os.environ, FORMULA_DLG_TITLE=title)
+    if IS_WIN:
+        # fenêtre invisible toujours au premier plan comme parent : le sélecteur passe devant FORMULA
+        ps = ("Add-Type -AssemblyName System.Windows.Forms;"
+              "[System.Windows.Forms.Application]::EnableVisualStyles();"
+              "$o=New-Object System.Windows.Forms.Form;$o.TopMost=$true;$o.ShowInTaskbar=$false;"
+              "$o.FormBorderStyle='None';$o.Opacity=0;$o.StartPosition='CenterScreen';"
+              "$o.Size=New-Object System.Drawing.Size(1,1);$o.Show();$o.Activate();"
+              "$d=New-Object System.Windows.Forms.OpenFileDialog;$d.Title=$env:FORMULA_DLG_TITLE;"
+              "$d.Filter='Images JPEG / PNG|*.jpg;*.jpeg;*.png';"
+              "$d.InitialDirectory=[Environment]::GetFolderPath('MyPictures');"
+              "if($d.ShowDialog($o) -eq 'OK'){[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
+              "[Console]::Out.Write($d.FileName)}")
+        cmd = ["powershell", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-Command", ps]
+    else:
+        start = next((d for d in (HOME / "Pictures", HOME / "Images", HOME / "Desktop") if d.is_dir()), HOME)
+        env.update(GDK_BACKEND="x11", QT_QPA_PLATFORM="xcb")
+        if shutil.which("zenity"):
+            cmd = ["zenity", "--file-selection", "--title", title, "--filename", str(start) + "/",
+                   "--file-filter", "Images JPEG / PNG | *.jpg *.jpeg *.png *.JPG *.JPEG *.PNG"]
+        elif shutil.which("kdialog"):
+            cmd = ["kdialog", "--title", title, "--getopenfilename", str(start),
+                   "*.jpg *.jpeg *.png *.JPG *.JPEG *.PNG|Images JPEG / PNG"]
+        else:
+            return None
+    PAD.keys_on()
+    try:
+        r = subprocess.run(cmd, capture_output=True, env=env, creationflags=NO_WINDOW)
+    except OSError:
+        return None
+    finally:
+        PAD.keys_off()
+    out = r.stdout.decode("utf-8", "replace").strip()
+    return out.splitlines()[-1].strip() if r.returncode == 0 and out else ""
+
+
 class Profiles:
     def __init__(self):
         self.lock = threading.RLock()
@@ -1389,6 +1456,10 @@ class Profiles:
         # copie locale de la liste commune : secours si kDrive est absent ou si le fichier commun disparaît
         self.mirror = DATA / "profiles-shared.json"
         self.mirrored = None
+        # images de profil : Profils/_avatars/<id>-<date>.<jpg|png> (synchronisées par kDrive) ;
+        # une image choisie attend dans formula-data/avatar-pending jusqu'à « Enregistrer »
+        self.avatars = self.root / "_avatars"
+        self.pending = DATA / "avatar-pending"
 
     # ---- liste partagée (kDrive), relue à chaque appel (donc à chaque ouverture de « Qui joue ? »)
     @staticmethod
@@ -1489,7 +1560,7 @@ class Profiles:
         return next((p for p in self.load()["profiles"] if p["id"] == pid), None)
 
     def public(self):
-        out = [{k: p.get(k) for k in ("id", "name", "color", "parent")} for p in self.load()["profiles"]]
+        out = [{k: p.get(k) for k in ("id", "name", "color", "parent", "avatar")} for p in self.load()["profiles"]]
         cur = self.current if any(p["id"] == self.current for p in out) else None
         return {"profiles": out, "current": cur, "last": load_settings().get("profile"),
                 "max": MAX_PROFILES, "parents": any(p["parent"] for p in out)}
@@ -1539,14 +1610,14 @@ class Profiles:
 
     def dir_name(self, name, d):
         base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip(" .") or "Profil"
-        used = {p["dir"].lower() for p in d["profiles"]} | {"_supprimes", "_conflits"}
+        used = {p["dir"].lower() for p in d["profiles"]} | {"_supprimes", "_conflits", "_avatars"}
         n, out = 1, base
         while out.lower() in used or (self.root / out).exists() and n < 50:
             n += 1
             out = f"{base} {n}"
         return out
 
-    def create(self, name, parent=False, pin=None, pid=None, reuse_dir=False):
+    def create(self, name, parent=False, pin=None, pid=None, reuse_dir=False, avatar=None):
         with self.lock:
             d = self.load()
             name = str(name or "").strip()[:20]
@@ -1563,10 +1634,12 @@ class Profiles:
                  "parent": bool(parent), "pin": self.hash_pin(pin) if parent else None, "created": int(time.time())}
             d["profiles"].append(p)
             (self.root / p["dir"]).mkdir(parents=True, exist_ok=True)
+            if avatar:
+                self.set_avatar(p, avatar)
             self.save(d)
             return True, p["id"]
 
-    def update(self, pid, name=None, parent=None, pin=None):
+    def update(self, pid, name=None, parent=None, pin=None, avatar=None):
         with self.lock:
             d = self.load()
             p = next((x for x in d["profiles"] if x["id"] == pid), None)
@@ -1587,6 +1660,8 @@ class Profiles:
                     p["pin"] = self.hash_pin(pin)
             elif parent is False:
                 p["parent"], p["pin"] = False, None
+            if avatar is not None and not self.set_avatar(p, avatar):
+                return False, "avatar"
             self.save(d)
             return True, "ok"
 
@@ -1603,11 +1678,73 @@ class Profiles:
                 dst = self.root / "_supprimes" / f'{p["dir"]}-{time.strftime("%Y%m%d-%H%M%S")}'
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(src), str(dst))     # sauvegardes mises de côté, pas effacées
+            img = self.avatars / p["avatar"] if p.get("avatar") else None
+            if img and img.is_file():
+                dst = self.root / "_supprimes" / f'avatar-{p["avatar"]}'
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(img), str(dst))
             d["profiles"].remove(p)
             self.save(d)
             if self.current == pid:
                 self.current = None
             return True, "ok"
+
+    # ---- image de profil
+    def stage_avatar(self, data):
+        """Image choisie (pas encore enregistrée) : vérifiée puis mise en attente. -> (infos, erreur)"""
+        if len(data) > AVATAR_MAX:
+            return None, "size"
+        info = image_info(data)
+        if not info:
+            return None, "format"
+        ext, w, h = info
+        self.pending.mkdir(parents=True, exist_ok=True)
+        for old in self.pending.iterdir():          # images choisies puis abandonnées
+            try:
+                if time.time() - old.stat().st_mtime > 86400:
+                    old.unlink()
+            except OSError:
+                pass
+        token = f"{secrets.token_hex(8)}.{ext}"
+        (self.pending / token).write_bytes(data)
+        return {"token": token, "w": w, "h": h, "url": f"/api/avatar-pending/{token}"}, None
+
+    def stage_avatar_file(self, path):
+        try:
+            f = Path(path)
+            if not f.is_file():
+                return None, "read"
+            if f.stat().st_size > AVATAR_MAX:
+                return None, "size"
+            return self.stage_avatar(f.read_bytes())
+        except OSError:
+            return None, "read"
+
+    def set_avatar(self, p, token):
+        """token : image en attente à poser, ou "" pour retirer l'image. L'ancienne image est effacée
+        (c'est une copie : l'original reste où l'utilisateur l'a pris)."""
+        old = p.get("avatar")
+        if token:
+            if not re.fullmatch(r"[0-9a-f]{16}\.(jpg|png)", str(token)):
+                return False
+            src = self.pending / token
+            if not src.is_file():
+                return False
+            name = f'{p["id"]}-{time.strftime("%Y%m%d-%H%M%S")}.{token.rsplit(".", 1)[1]}'
+            self.avatars.mkdir(parents=True, exist_ok=True)
+            tmp = self.avatars / f".{name}.tmp"
+            shutil.copyfile(src, tmp)
+            os.replace(tmp, self.avatars / name)     # kDrive ne voit jamais une image à moitié écrite
+            src.unlink(missing_ok=True)
+            p["avatar"] = name
+        else:
+            p.pop("avatar", None)
+        if old and old != p.get("avatar"):
+            try:
+                (self.avatars / old).unlink()
+            except OSError:
+                pass
+        return True
 
     # ---- sauvegardes
     def saves_dir(self, pid=None):
@@ -1842,6 +1979,70 @@ def win_browser_in_front():
 
 # ---------------------------------------------------------------- manette
 
+# manette -> clavier dans l'explorateur de fichiers (choix de l'image d'un profil)
+PAD_KEYS = {"up": ["Up"], "down": ["Down"], "left": ["Left"], "right": ["Right"], "a": ["Return"],
+            "start": ["Return"], "b": ["Escape"], "select": ["Escape"], "x": ["Alt", "Up"],
+            "lb": ["Shift", "Tab"], "rb": ["Tab"]}
+
+
+class KeyInjector:
+    """Touches clavier simulées : keybd_event (Windows), XTest (Linux, X11/Xwayland)."""
+    VK = {"Up": 0x26, "Down": 0x28, "Left": 0x25, "Right": 0x27, "Return": 0x0D, "Escape": 0x1B,
+          "Alt": 0x12, "Shift": 0x10, "Tab": 0x09}
+    XK = {"Up": 0xFF52, "Down": 0xFF54, "Left": 0xFF51, "Right": 0xFF53, "Return": 0xFF0D, "Escape": 0xFF1B,
+          "Alt": 0xFFE9, "Shift": 0xFFE1, "Tab": 0xFF09}
+    EXTENDED = {"Up", "Down", "Left", "Right"}
+
+    def __init__(self):
+        import ctypes
+        self.lock = threading.Lock()
+        self.down = []
+        if IS_WIN:
+            self.u32 = ctypes.windll.user32
+            return
+        self.x11 = ctypes.CDLL("libX11.so.6")
+        self.xt = ctypes.CDLL("libXtst.so.6")
+        self.x11.XOpenDisplay.restype = ctypes.c_void_p
+        self.x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        self.x11.XKeysymToKeycode.restype = ctypes.c_ubyte
+        self.x11.XKeysymToKeycode.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        self.x11.XFlush.argtypes = [ctypes.c_void_p]
+        self.x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+        self.xt.XTestFakeKeyEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
+        self.dpy = self.x11.XOpenDisplay(None)
+        if not self.dpy:
+            raise OSError("affichage X introuvable (DISPLAY)")
+
+    def key(self, k, down):
+        if IS_WIN:
+            self.u32.keybd_event(self.VK[k], 0, (0 if down else 2) | (1 if k in self.EXTENDED else 0), 0)
+        elif self.dpy:
+            code = self.x11.XKeysymToKeycode(self.dpy, self.XK[k])
+            if code:
+                self.xt.XTestFakeKeyEvent(self.dpy, code, 1 if down else 0, 0)
+                self.x11.XFlush(self.dpy)
+        if down:
+            self.down.append(k)
+        elif k in self.down:
+            self.down.remove(k)
+
+    def send(self, name, down):
+        keys = PAD_KEYS.get(name)
+        with self.lock:
+            if not keys or (not down and keys[-1] not in self.down):
+                return               # relâchement d'un bouton enfoncé avant l'ouverture : ignoré
+            for k in (keys if down else reversed(keys)):
+                self.key(k, down)
+
+    def close(self):
+        with self.lock:
+            for k in reversed(self.down[:]):
+                self.key(k, False)
+            if not IS_WIN and self.dpy:
+                self.x11.XCloseDisplay(self.dpy)
+                self.dpy = None
+
+
 class PadReader:
     """Lit la manette virtuelle de Steam directement (evdev, côté hôte) et transmet
     les appuis à l'interface. Le navigateur n'est pas fiable pour ça (sandbox flatpak,
@@ -1871,6 +2072,20 @@ class PadReader:
         self.resume_at = 0.0
         self.clients = []
         self.lock = threading.Lock()
+        self.keys = None         # KeyInjector pendant qu'un sélecteur de fichiers est ouvert
+
+    def keys_on(self):
+        """Sélecteur de fichiers du système ouvert : la manette y tape au clavier (flèches, Entrée…)."""
+        try:
+            self.keys = KeyInjector()
+        except Exception as e:
+            print("manette -> clavier indisponible :", e, flush=True)
+            self.keys = None
+
+    def keys_off(self):
+        k, self.keys = self.keys, None
+        if k:
+            k.close()
 
     def subscribe(self):
         import queue
@@ -1930,6 +2145,11 @@ class PadReader:
             self.held.add(name)
         else:
             self.held.discard(name)
+        k = self.keys
+        if k:                    # sélecteur de fichiers ouvert : il reçoit la manette en touches clavier
+            k.send(name, new)
+            return
+        if not new:
             if name in self.muted:
                 self.muted.discard(name)
                 return
@@ -2597,6 +2817,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, {"entries": journal_read()})
         if path.startswith("/covers/"):
             return self.static(COVERS, path[len("/covers/"):], cache=True)
+        if path.startswith("/api/avatar/"):          # nom unique par image : cache possible
+            return self.static(PROFILES.avatars, urllib.parse.unquote(path[len("/api/avatar/"):]), cache=True)
+        if path.startswith("/api/avatar-pending/"):
+            return self.static(PROFILES.pending, path[len("/api/avatar-pending/"):])
         rel = path.lstrip("/") or "index.html"
         return self.static(WEB_DIR, rel)
 
@@ -2655,6 +2879,27 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(409, {"ok": False})
             st = PROFILES.bump(gid, fav=not PROFILES.stats().get(gid, {}).get("fav"))
             return self.send(200, {"ok": True, "fav": bool(st.get("fav"))})
+        if path == "/api/avatar/pick":
+            # explorateur de fichiers du système, ouvert par le serveur (Deck ; Windows sans FORMULA.exe récent)
+            if RUN.running():
+                return self.send(409, {"ok": False, "error": "running"})
+            title = "Image du profil (1000 x 1000, JPEG ou PNG)" if load_settings().get("lang") == "fr" \
+                else "Profile picture (1000 x 1000, JPEG or PNG)"
+            got = pick_image_dialog(title)
+            if got is None:
+                return self.send(200, {"ok": False, "error": "nodialog"})
+            if not got:
+                return self.send(200, {"ok": False, "error": "cancel"})
+            info, err = PROFILES.stage_avatar_file(got)
+            return self.send(200, dict(info or {}, ok=bool(info), error=err))
+        if path == "/api/avatar/path":
+            # Windows : chemin choisi dans le sélecteur de FORMULA.exe
+            info, err = PROFILES.stage_avatar_file(str(body.get("path") or ""))
+            return self.send(200, dict(info or {}, ok=bool(info), error=err))
+        if path == "/api/pad-keys":
+            # Windows : sélecteur de FORMULA.exe ouvert -> la manette tape au clavier
+            PAD.keys_on() if body.get("on") else PAD.keys_off()
+            return self.send(200, {"ok": True})
         if path.startswith("/api/profiles/"):
             return self.profiles(path.rsplit("/", 1)[-1], body)
         if path == "/api/quit":
@@ -2689,11 +2934,13 @@ class Handler(BaseHTTPRequestHandler):
             if not PROFILES.manager_ok(body.get("auth")):
                 return self.send(403, {"ok": False, "error": "auth"})
             if action == "create":
-                ok, err = PROFILES.create(body.get("name"), bool(body.get("parent")), body.get("pin"))
+                ok, err = PROFILES.create(body.get("name"), bool(body.get("parent")), body.get("pin"),
+                                          avatar=body.get("avatar") or None)
             elif action == "update":
                 parent = body.get("parent")
+                av = body.get("avatar")
                 ok, err = PROFILES.update(pid, body.get("name"), parent if isinstance(parent, bool) else None,
-                                          body.get("pin"))
+                                          body.get("pin"), avatar=av if isinstance(av, str) else None)
             else:
                 ok, err = PROFILES.delete(pid)
         else:
