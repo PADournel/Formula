@@ -190,7 +190,8 @@ async function load() {
       paintSettings();
       if (d.settings && d.settings.lang && d.settings.lang !== LANG) { LANG = d.settings.lang; applyI18n(); }
     }
-    if (!d.profile && !pf.open && !state.running) openProfiles();
+    if (!d.profile && !pf.open && !state.running) await openProfiles();
+    if (splash.on) splash.ready();
     if (d.profile !== pf.cur) { pf.cur = d.profile; if (!pf.list.length) await fetchProfiles(); paintWho(); }
     const sig = JSON.stringify([d.profile, d.games.map((g) => [g.id, g.cover, g.fav, g.title]), d.systems.length]);
     state.systems = d.systems.sort((a, b) => a.order - b.order);
@@ -1474,17 +1475,21 @@ function overlayHandler() {
 
 // ------------------------------------------------------------ écran de lancement
 // logo OnTrack Software ~1,4 s (entrées ignorées), puis « Qui joue ? » apparaît en fondu
-const splash = { on: !!$("#splash") };
+const splash = { on: !!$("#splash"), ready: () => {} };
 function splashHandle() { /* rien pendant le logo */ }
 if (splash.on) {
-  setTimeout(() => {
+  // le logo reste jusqu'à ce que l'écran suivant soit prêt (« Qui joue ? » rempli), pour ne jamais montrer
+  // l'interface vide ou la bibliothèque entre les deux ; au plus 8 s si le serveur ne répond pas
+  const minTime = new Promise((r) => setTimeout(r, 1350));
+  const ready = new Promise((r) => { splash.ready = r; setTimeout(r, 8000); });
+  Promise.all([minTime, ready]).then(() => {
     const el = $("#splash");
     const pfs = $("#profiles");
     if (!pfs.classList.contains("hidden")) { pfs.classList.remove("pf-enter"); void pfs.offsetWidth; pfs.classList.add("pf-enter"); }
     el.classList.add("out");
     splash.on = false;
     setTimeout(() => el.remove(), 400);
-  }, 1350);
+  });
 }
 
 // ------------------------------------------------------------ clavier
