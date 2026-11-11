@@ -34,12 +34,12 @@
 
 <main id="main">
   <header id="top">
-    <div class="search"><i>⌕</i><input id="search" data-i18n-ph="search" autocomplete="off" spellcheck="false"></div>
-    <button id="sort" class="chip"></button>
+    <div class="search top-item" id="search-box"><i>⌕</i><input id="search" data-i18n-ph="search" autocomplete="off" spellcheck="false"></div>
+    <button id="sort" class="chip top-item"></button>
     <div class="spacer"></div>
     <div id="status" class="chip ghost hidden"></div>
-    <div id="sync" class="chip ghost hidden"></div>
-    <button id="who" class="who hidden" data-i18n-title="switchProfile"><span id="who-avatar"></span><span id="who-name"></span></button>
+    <button id="sync" class="chip ghost top-item"></button>
+    <button id="who" class="who top-item hidden" data-i18n-title="switchProfile"><span id="who-avatar"></span><span id="who-name"></span></button>
     <div id="clock"></div>
   </header>
 
@@ -192,6 +192,15 @@
       <span><b class="pad y">Y</b><span data-i18n="manageProfiles"></span></span>
       <span id="pf-back-hint"><b class="pad b">B</b><span data-i18n="back"></span></span>
     </div>
+  </div>
+</div>
+
+<div id="whomenu" class="hidden"></div>
+<div id="journal" class="hidden">
+  <div class="jr-panel">
+    <div class="jr-head"><h2 data-i18n="journalTitle"></h2><button class="set-close" data-i18n-title="close">✕</button></div>
+    <div id="journal-list"></div>
+    <div class="osk-hints"><span><b class="pad b">B</b><span data-i18n="close"></span></span></div>
   </div>
 </div>
 
