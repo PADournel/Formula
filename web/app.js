@@ -408,16 +408,16 @@ function move(dx, dy) {
 // ------------------------------------------------------------ stick droit : saut d'une section à l'autre
 // Sections : 1 = Bibliothèque / Récents / Favoris, 2 = consoles, 3 = Actualiser → Quitter,
 // 4 = catalogue, 5 = barre du haut. Angle : 0° = droite, sens antihoraire (90° = haut).
-// Plages : 61-119 haut, 119-156 haut-gauche, 156-208 gauche, 208-239 bas-gauche, 239-301 bas,
-// 301-31 droite, 31-61 haut-droite. La section visée dépend de la section courante.
+// Plages (multiples de 30°) : 60-120 haut, 120-150 haut-gauche, 150-210 gauche, 210-240 bas-gauche,
+// 240-300 bas, 300-30 droite, 30-60 haut-droite. La section visée dépend de la section courante.
 function stickDir(a) {
   a = ((a % 360) + 360) % 360;
-  if (a >= 31 && a < 61) return "ur";
-  if (a >= 61 && a < 119) return "up";
-  if (a >= 119 && a < 156) return "ul";
-  if (a >= 156 && a < 208) return "left";
-  if (a >= 208 && a < 239) return "dl";
-  if (a >= 239 && a < 301) return "down";
+  if (a >= 30 && a < 60) return "ur";
+  if (a >= 60 && a < 120) return "up";
+  if (a >= 120 && a < 150) return "ul";
+  if (a >= 150 && a < 210) return "left";
+  if (a >= 210 && a < 240) return "dl";
+  if (a >= 240 && a < 300) return "down";
   return "right";
 }
 const SECTION_JUMPS = {
