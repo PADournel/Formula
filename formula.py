@@ -2787,6 +2787,154 @@ class EmuManager:
 EMUS = EmuManager()
 
 
+# ---------------------------------------------------------------- gestionnaire de jeux
+#
+# Liste les jeux de cet appareil avec leur taille réelle et les retire de l'appareil sur demande.
+# Rien n'est effacé : le jeu est déplacé dans la corbeille FORMULA (même disque, donc instantané),
+# que l'utilisateur vide lui-même. Les sauvegardes ne sont jamais concernées (kDrive, profils,
+# dossiers savedata des émulateurs). La synchro ne recopie pas un jeu retiré ici (sync_known.json),
+# et l'autre appareil garde sa copie.
+
+TRASH = (BASE if IS_WIN else HOME / "Emulation") / "_corbeille"
+TRASH_LOG = TRASH / "corbeille.json"
+COMPANIONS = {".cue", ".m3u", ".sbi", ".sub", ".ccd", ".img"}   # fichiers qui vont avec un jeu (même nom)
+
+
+class GameManager:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.sizes = {}          # id du jeu -> (signature, taille en octets)
+        self.trash_size = None
+        self.busy = False
+
+    @staticmethod
+    def _safe(p):
+        return p.exists() and not is_link(p) and not (IS_WIN and os.path.isjunction(p))
+
+    def items(self, g, games=None):
+        """Ce qui est retiré de l'appareil pour ce jeu : le jeu dans roms/<console> (fichier, ou son dossier
+        s'il ne contient que lui) et la copie installée par l'émulateur (PS3 PSN, PS Vita). Jamais de sauvegarde."""
+        p = Path(g["path"])
+        root = ROMS / g["system"]
+        try:
+            rel = p.relative_to(root)
+        except ValueError:
+            return []
+        out = []
+        if len(rel.parts) == 2 and p.is_file():            # roms/<console>/<dossier>/<jeu>
+            games = LIB.games if games is None else games
+            sub = str(p.parent) + os.sep
+            alone = not any(o["path"].startswith(sub) for o in games.values() if o["path"] != g["path"])
+            out.append(p.parent if alone else p)
+            if not alone:
+                out += [q for q in p.parent.glob(glob_escape(p.stem) + ".*") if q.suffix.lower() in COMPANIONS]
+        elif len(rel.parts) == 1:
+            out.append(p)
+            if p.is_file():
+                out += [q for q in root.glob(glob_escape(p.stem) + ".*") if q.suffix.lower() in COMPANIONS]
+            else:                                           # mises à jour PS4 rangées à côté du jeu
+                out += [q for q in root.iterdir() if q.is_dir() and q.name.lower() in
+                        (p.name.lower() + "-update", p.name.lower() + "-patch")]
+        serial = g.get("serial") or ""
+        if re.fullmatch(r"[A-Z0-9]{9}", serial):
+            if g["system"] == "ps3" and g.get("content_id"):     # jeu PSN installé dans RPCS3
+                out.append(rpcs3_root() / "dev_hdd0" / "game" / serial)
+            if g["system"] == "psvita":                          # jeu installé dans Vita3K
+                out.append(vita_root() / "portable" / "fs" / "ux0" / "app" / serial)
+        return [q for q in out if self._safe(q)]
+
+    @staticmethod
+    def size_of(paths):
+        return sum(dir_size(q) if q.is_dir() else q.stat().st_size for q in paths)
+
+    def listing(self):
+        with LIB.lock:
+            games = dict(LIB.games)
+        out, missing = [], False
+        for gid, g in games.items():
+            sig = (g.get("mtime"), g.get("size"))
+            known = self.sizes.get(gid)
+            if not known or known[0] != sig:
+                missing = True
+            out.append({"id": gid, "system": g["system"], "title": g.get("title"), "cover": g.get("cover"),
+                        "icon": g.get("icon"), "av": asset_version(g), "size": known[1] if known else None})
+        if (missing or self.trash_size is None) and not self.busy:
+            self.busy = True
+            threading.Thread(target=self._compute, args=(games,), daemon=True).start()
+        return {"games": out, "pending": missing, "trash": self.trash_size, "trashPath": str(TRASH),
+                "disk": EMUS.disk_usage(), "running": RUN.running()}
+
+    def _compute(self, games):
+        try:
+            for gid, g in games.items():
+                sig = (g.get("mtime"), g.get("size"))
+                if self.sizes.get(gid, (None,))[0] == sig:
+                    continue
+                try:
+                    self.sizes[gid] = (sig, self.size_of(self.items(g, games)))
+                except OSError:
+                    self.sizes[gid] = (sig, 0)
+            self.trash_size = dir_size(TRASH) if TRASH.is_dir() else 0
+        finally:
+            self.busy = False
+
+    def preview(self, gid):
+        g = LIB.games.get(gid)
+        if not g:
+            return None
+        items = self.items(g)
+        return {"title": g.get("title"), "system": g["system"], "size": self.size_of(items),
+                "items": [str(q) for q in items], "trash": str(TRASH)}
+
+    def remove(self, gid):
+        """Déplace le jeu dans la corbeille FORMULA et le retire de la bibliothèque."""
+        with self.lock:
+            g = LIB.games.get(gid)
+            if not g:
+                return False, "missing"
+            items = self.items(g)
+            if not items:
+                return False, "missing"
+            dest_dir = TRASH / g["system"]
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            moved = []
+            for q in items:
+                name = q.name if q.is_relative_to(ROMS) else q.name + " (installé)"   # copie de l'émulateur
+                dest, n = dest_dir / name, 2
+                while dest.exists():
+                    dest, n = dest_dir / (f"{Path(name).stem} ({n}){Path(name).suffix}" if q.is_file()
+                                          else f"{name} ({n})"), n + 1
+                try:
+                    shutil.move(str(q), str(dest))
+                except OSError as e:
+                    print("corbeille : déplacement impossible", q, e, file=sys.stderr)
+                    if not moved:
+                        return False, "busy"      # fichier ouvert : rien n'a bougé
+                    continue
+                moved.append({"from": str(q), "to": str(dest)})
+            try:
+                log = json.loads(TRASH_LOG.read_text(encoding="utf-8"))
+            except Exception:
+                log = []
+            log.append({"date": time.strftime("%Y-%m-%d %H:%M:%S"), "title": g.get("title"), "system": g["system"],
+                        "moved": moved})
+            TRASH_LOG.write_text(json.dumps(log, ensure_ascii=False, indent=1), encoding="utf-8")
+            with LIB.lock:
+                LIB.games.pop(gid, None)
+                LIB.save()
+            self.sizes.pop(gid, None)
+            self.trash_size = None
+            journal_add([("remove", g)])
+            return True, "ok"
+
+
+def glob_escape(s):
+    return re.sub(r"([\[\]*?])", r"[\1]", s)
+
+
+GAMES = GameManager()
+
+
 # ---------------------------------------------------------------- serveur HTTP
 
 LIB = Library()
@@ -2844,6 +2992,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, PROFILES.public())
         if path == "/api/journal":
             return self.send(200, {"entries": journal_read()})
+        if path == "/api/games":
+            return self.send(200, GAMES.listing())
         if path.startswith("/covers/"):
             return self.static(COVERS, path[len("/covers/"):], cache=True)
         if path.startswith("/api/avatar/"):          # /api/avatar/<id>?v=<version> : cache possible
@@ -2899,6 +3049,17 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/launch":
             ok, msg = RUN.launch(LIB, body.get("id"))
             return self.send(200 if ok else 409, {"ok": ok, "message": msg})
+        if path == "/api/games/preview":
+            info = GAMES.preview(body.get("id"))
+            return self.send(200 if info else 404, info or {"error": "missing"})
+        if path == "/api/games/remove":
+            # gestionnaire de jeux : retire le jeu de cet appareil (corbeille FORMULA), jamais les sauvegardes
+            if RUN.running():
+                return self.send(409, {"ok": False, "error": "running"})
+            if not PROFILES.manager_ok(body.get("auth")):
+                return self.send(403, {"ok": False, "error": "auth"})
+            ok, err = GAMES.remove(body.get("id"))
+            return self.send(200 if ok else 409, {"ok": ok, "error": None if ok else err})
         if path == "/api/rescan":
             threading.Thread(target=LIB.scan, daemon=True).start()
             return self.send(200, {"ok": True})
