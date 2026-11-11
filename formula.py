@@ -862,6 +862,10 @@ def rpcs3_set_pad():
             txt = f.read_text(encoding="utf-8")
             new = re.sub(r'(Player 1 Input:\n  Handler: SDL\n  Device: ).*', lambda m: m.group(1) + f'"{dev}"',
                          txt, count=1)
+            if "Handler: SDL" in new:   # RPCS3 (SDL3) nomme les boutons de façade South/East/West/North
+                for key, old_name, sdl3 in (("Cross", "A", "South"), ("Circle", "B", "East"),
+                                            ("Square", "X", "West"), ("Triangle", "Y", "North")):
+                    new = re.sub(rf"(?m)^(    {key}: ){old_name}$", lambda m, n=sdl3: m.group(1) + n, new)
             if new != txt:
                 f.write_text(new, encoding="utf-8")
         except OSError:
