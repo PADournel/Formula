@@ -1378,11 +1378,24 @@ def write_settings(s):
     SETTINGS_FILE.write_text(json.dumps(s, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
-AVATAR_MAX = 20 * 1024 * 1024     # image de profil : 20 Mo au plus (conseillé : 1000 x 1000, JPEG ou PNG)
+AVATAR_MAX = 20 * 1024 * 1024     # image de profil : 20 Mo au plus (conseillé : 1000 x 1000, JPEG, PNG ou WebP)
+AVATAR_FILE = "_avatar.jpeg"       # Profils/<profil>/_avatar.jpeg : image convertie (JPEG carré 1000 x 1000)
 
 
 def image_info(data):
-    """("png" | "jpg", largeur, hauteur) pour une image PNG ou JPEG, sinon None (taille 0 si illisible)."""
+    """("png" | "jpg" | "webp", largeur, hauteur) pour une image PNG, JPEG ou WebP, sinon None
+    (taille 0 si illisible)."""
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        kind = data[12:16]
+        if kind == b"VP8X" and len(data) >= 30:
+            return "webp", 1 + int.from_bytes(data[24:27], "little"), 1 + int.from_bytes(data[27:30], "little")
+        if kind == b"VP8 " and len(data) >= 30:
+            w, h = struct.unpack("<HH", data[26:30])
+            return "webp", w & 0x3FFF, h & 0x3FFF
+        if kind == b"VP8L" and len(data) >= 25:
+            b = int.from_bytes(data[21:25], "little")
+            return "webp", (b & 0x3FFF) + 1, ((b >> 14) & 0x3FFF) + 1
+        return "webp", 0, 0
     if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
         w, h = struct.unpack(">II", data[16:24])
         return "png", w, h
@@ -1406,7 +1419,7 @@ def image_info(data):
 
 
 def pick_image_dialog(title):
-    """Ouvre l'explorateur de fichiers du système pour choisir une image (JPEG ou PNG).
+    """Ouvre l'explorateur de fichiers du système pour choisir une image (JPEG, PNG ou WebP).
     Renvoie le chemin choisi, "" si annulé, None si aucun sélecteur n'est disponible.
     Pendant qu'il est ouvert, la manette tape au clavier (voir PadReader.keys_on)."""
     env = dict(os.environ, FORMULA_DLG_TITLE=title)
@@ -1418,7 +1431,7 @@ def pick_image_dialog(title):
               "$o.FormBorderStyle='None';$o.Opacity=0;$o.StartPosition='CenterScreen';"
               "$o.Size=New-Object System.Drawing.Size(1,1);$o.Show();$o.Activate();"
               "$d=New-Object System.Windows.Forms.OpenFileDialog;$d.Title=$env:FORMULA_DLG_TITLE;"
-              "$d.Filter='Images JPEG / PNG|*.jpg;*.jpeg;*.png';"
+              "$d.Filter='Images JPEG / PNG / WebP|*.jpg;*.jpeg;*.png;*.webp';"
               "$d.InitialDirectory=[Environment]::GetFolderPath('MyPictures');"
               "if($d.ShowDialog($o) -eq 'OK'){[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
               "[Console]::Out.Write($d.FileName)}")
@@ -1428,10 +1441,10 @@ def pick_image_dialog(title):
         env.update(GDK_BACKEND="x11", QT_QPA_PLATFORM="xcb")
         if shutil.which("zenity"):
             cmd = ["zenity", "--file-selection", "--title", title, "--filename", str(start) + "/",
-                   "--file-filter", "Images JPEG / PNG | *.jpg *.jpeg *.png *.JPG *.JPEG *.PNG"]
+                   "--file-filter", "Images JPEG / PNG / WebP | *.jpg *.jpeg *.png *.webp *.JPG *.JPEG *.PNG *.WEBP"]
         elif shutil.which("kdialog"):
             cmd = ["kdialog", "--title", title, "--getopenfilename", str(start),
-                   "*.jpg *.jpeg *.png *.JPG *.JPEG *.PNG|Images JPEG / PNG"]
+                   "*.jpg *.jpeg *.png *.webp *.JPG *.JPEG *.PNG *.WEBP|Images JPEG / PNG / WebP"]
         else:
             return None
     PAD.keys_on()
@@ -1456,8 +1469,9 @@ class Profiles:
         # copie locale de la liste commune : secours si kDrive est absent ou si le fichier commun disparaît
         self.mirror = DATA / "profiles-shared.json"
         self.mirrored = None
-        # images de profil : Profils/_avatars/<id>-<date>.<jpg|png> (synchronisées par kDrive) ;
-        # une image choisie attend dans formula-data/avatar-pending jusqu'à « Enregistrer »
+        # image de profil : Profils/<profil>/_avatar.jpeg (synchronisée par kDrive). L'image choisie attend
+        # dans formula-data/avatar-pending ; l'interface la convertit en JPEG carré 1000 x 1000 (canvas),
+        # renvoyée ici, puis posée à « Enregistrer ». Ancien emplacement (0.7.012) : Profils/_avatars/<nom>.
         self.avatars = self.root / "_avatars"
         self.pending = DATA / "avatar-pending"
 
@@ -1561,6 +1575,8 @@ class Profiles:
 
     def public(self):
         out = [{k: p.get(k) for k in ("id", "name", "color", "parent", "avatar")} for p in self.load()["profiles"]]
+        for p in out:      # l'interface charge /api/avatar/<id>?v=<version> : nouvelle adresse à chaque changement
+            p["avatar"] = (p["avatar"] or "").rsplit("?", 1)[-1] or None
         cur = self.current if any(p["id"] == self.current for p in out) else None
         return {"profiles": out, "current": cur, "last": load_settings().get("profile"),
                 "max": MAX_PROFILES, "parents": any(p["parent"] for p in out)}
@@ -1678,7 +1694,7 @@ class Profiles:
                 dst = self.root / "_supprimes" / f'{p["dir"]}-{time.strftime("%Y%m%d-%H%M%S")}'
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(str(src), str(dst))     # sauvegardes mises de côté, pas effacées
-            img = self.avatars / p["avatar"] if p.get("avatar") else None
+            img = self.avatar_path(p) if p.get("avatar") and "/" not in p["avatar"] else None
             if img and img.is_file():
                 dst = self.root / "_supprimes" / f'avatar-{p["avatar"]}'
                 dst.parent.mkdir(parents=True, exist_ok=True)
@@ -1705,7 +1721,7 @@ class Profiles:
                     old.unlink()
             except OSError:
                 pass
-        token = f"{secrets.token_hex(8)}.{ext}"
+        token = f"{secrets.token_hex(8)}.{ext}"   # webp : en attente de conversion par l'interface
         (self.pending / token).write_bytes(data)
         return {"token": token, "w": w, "h": h, "url": f"/api/avatar-pending/{token}"}, None
 
@@ -1720,28 +1736,41 @@ class Profiles:
         except OSError:
             return None, "read"
 
+    def avatar_path(self, p):
+        """Fichier de l'image du profil. Champ "avatar" : "<dossier>/_avatar.jpeg?<version>" (ou, en 0.7.012,
+        un nom de fichier dans Profils/_avatars)."""
+        a = str(p.get("avatar") or "").split("?", 1)[0]
+        if not a:
+            return None
+        f = (self.root / a) if "/" in a else (self.avatars / a)
+        try:
+            return f if self.root.resolve() in f.resolve().parents else None
+        except OSError:
+            return None
+
     def set_avatar(self, p, token):
-        """token : image en attente à poser, ou "" pour retirer l'image. L'ancienne image est effacée
-        (c'est une copie : l'original reste où l'utilisateur l'a pris)."""
-        old = p.get("avatar")
+        """token : image convertie en attente (JPEG), ou "" pour retirer l'image. L'image est une copie :
+        l'original reste où l'utilisateur l'a pris."""
+        old = self.avatar_path(p)
         if token:
-            if not re.fullmatch(r"[0-9a-f]{16}\.(jpg|png)", str(token)):
+            if not re.fullmatch(r"[0-9a-f]{16}\.jpg", str(token)):
                 return False
             src = self.pending / token
             if not src.is_file():
                 return False
-            name = f'{p["id"]}-{time.strftime("%Y%m%d-%H%M%S")}.{token.rsplit(".", 1)[1]}'
-            self.avatars.mkdir(parents=True, exist_ok=True)
-            tmp = self.avatars / f".{name}.tmp"
+            dst = self.root / p["dir"] / AVATAR_FILE
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            tmp = dst.with_name(f".{AVATAR_FILE}.{os.getpid()}.tmp")
             shutil.copyfile(src, tmp)
-            os.replace(tmp, self.avatars / name)     # kDrive ne voit jamais une image à moitié écrite
+            os.replace(tmp, dst)                      # kDrive ne voit jamais une image à moitié écrite
             src.unlink(missing_ok=True)
-            p["avatar"] = name
+            p["avatar"] = f'{p["dir"]}/{AVATAR_FILE}?{time.strftime("%Y%m%d%H%M%S")}'
         else:
             p.pop("avatar", None)
-        if old and old != p.get("avatar"):
+        new = self.avatar_path(p)
+        if old and old != new:
             try:
-                (self.avatars / old).unlink()
+                old.unlink()
             except OSError:
                 pass
         return True
@@ -2764,7 +2793,7 @@ LIB = Library()
 RUN = Runner()
 PAD = PadReader(RUN)
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "application/javascript",
-        ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml", ".json": "application/json",
+        ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml", ".jpeg": "image/jpeg", ".json": "application/json",
         ".woff2": "font/woff2"}
 
 
@@ -2817,8 +2846,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, {"entries": journal_read()})
         if path.startswith("/covers/"):
             return self.static(COVERS, path[len("/covers/"):], cache=True)
-        if path.startswith("/api/avatar/"):          # nom unique par image : cache possible
-            return self.static(PROFILES.avatars, urllib.parse.unquote(path[len("/api/avatar/"):]), cache=True)
+        if path.startswith("/api/avatar/"):          # /api/avatar/<id>?v=<version> : cache possible
+            p = PROFILES.get(path[len("/api/avatar/"):])
+            f = PROFILES.avatar_path(p) if p else None
+            if not f or not f.is_file():
+                return self.send(404, {"error": "not found"})
+            return self.send(200, f.read_bytes(), MIME.get(f.suffix.lower(), "image/jpeg"), True)
         if path.startswith("/api/avatar-pending/"):
             return self.static(PROFILES.pending, path[len("/api/avatar-pending/"):])
         rel = path.lstrip("/") or "index.html"
@@ -2850,10 +2883,19 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
         n = int(self.headers.get("Content-Length") or 0)
+        if n > AVATAR_MAX + 1024:
+            return self.send(413, {"ok": False, "error": "size"})
+        raw = self.rfile.read(n)
         try:
-            body = json.loads(self.rfile.read(n) or b"{}")
+            body = json.loads(raw or b"{}")
         except ValueError:
             body = {}
+        if path == "/api/avatar/upload":
+            # image convertie par l'interface (JPEG carré) : remplace l'image choisie en attente
+            if not raw.startswith(b"\xff\xd8\xff"):
+                return self.send(200, {"ok": False, "error": "format"})
+            info, err = PROFILES.stage_avatar(raw)
+            return self.send(200, dict(info or {}, ok=bool(info), error=err))
         if path == "/api/launch":
             ok, msg = RUN.launch(LIB, body.get("id"))
             return self.send(200 if ok else 409, {"ok": ok, "message": msg})
@@ -2883,8 +2925,8 @@ class Handler(BaseHTTPRequestHandler):
             # explorateur de fichiers du système, ouvert par le serveur (Deck ; Windows sans FORMULA.exe récent)
             if RUN.running():
                 return self.send(409, {"ok": False, "error": "running"})
-            title = "Image du profil (1000 x 1000, JPEG ou PNG)" if load_settings().get("lang") == "fr" \
-                else "Profile picture (1000 x 1000, JPEG or PNG)"
+            title = "Image du profil (1000 x 1000, JPEG, PNG ou WebP)" if load_settings().get("lang") == "fr" \
+                else "Profile picture (1000 x 1000, JPEG, PNG or WebP)"
             got = pick_image_dialog(title)
             if got is None:
                 return self.send(200, {"ok": False, "error": "nodialog"})
