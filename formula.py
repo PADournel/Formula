@@ -104,7 +104,11 @@ SYSTEMS = {
     "ps3": {
         "name": "PlayStation 3", "short": "PS3", "order": 4,
         "exts": [".iso"], "folders": True,
-        "cmd": ["flatpak", "run", "--user", "--env=QT_QPA_PLATFORM=xcb", "net.rpcs3.RPCS3", "--no-gui", "{path}"],
+        # Cache de shaders de Mesa : Steam le place dans ~/.local/share/Steam/steamapps/shadercache/…,
+        # en lecture seule dans le bac à sable (home:ro) ; sans cela tout est recompilé à chaque lancement.
+        "cmd": ["flatpak", "run", "--user", "--env=QT_QPA_PLATFORM=xcb",
+                f"--env=MESA_SHADER_CACHE_DIR={HOME}/.var/app/net.rpcs3.RPCS3/cache",
+                "net.rpcs3.RPCS3", "--no-gui", "{path}"],
         "libretro": "Sony - PlayStation 3",
     },
     "ps4": {
