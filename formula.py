@@ -104,11 +104,7 @@ SYSTEMS = {
     "ps3": {
         "name": "PlayStation 3", "short": "PS3", "order": 4,
         "exts": [".iso"], "folders": True,
-        # Cache de shaders de Mesa : Steam le place dans ~/.local/share/Steam/steamapps/shadercache/…,
-        # en lecture seule dans le bac à sable (home:ro) ; sans cela tout est recompilé à chaque lancement.
-        "cmd": ["flatpak", "run", "--user", "--env=QT_QPA_PLATFORM=xcb",
-                f"--env=MESA_SHADER_CACHE_DIR={HOME}/.var/app/net.rpcs3.RPCS3/cache",
-                "net.rpcs3.RPCS3", "--no-gui", "{path}"],
+        "cmd": ["flatpak", "run", "--user", "--env=QT_QPA_PLATFORM=xcb", "net.rpcs3.RPCS3", "--no-gui", "{path}"],
         "libretro": "Sony - PlayStation 3",
     },
     "ps4": {
@@ -805,6 +801,16 @@ def pkg_content_id(path):
     with open(path, "rb") as f:
         h = f.read(0x60)
     return h[0x30:0x60].split(b"\0")[0].decode("ascii", "replace") if h[:4] == b"\x7fPKG" else None
+
+
+def flatpak_shader_cache(cmd):
+    """Cache de shaders du pilote (Mesa) dans le dossier du Flatpak. Steam le place dans
+    ~/.local/share/Steam/steamapps/shadercache/<appid>, en lecture seule pour les Flatpak qui n'ont
+    que home:ro (RPCS3, PCSX2, RMG, Nestopia…) : sans cela tout est recompilé à chaque lancement."""
+    i = next((k for k in range(2, len(cmd)) if not cmd[k].startswith("-")), None)
+    if i is None or any(c.startswith("--env=MESA_SHADER_CACHE_DIR=") for c in cmd[:i]):
+        return
+    cmd.insert(i, f"--env=MESA_SHADER_CACHE_DIR={HOME}/.var/app/{cmd[i]}/cache")
 
 
 def rpcs3_root():
@@ -2028,6 +2034,8 @@ class Runner:
             ps3_disc_updates(g)
         if g["system"] == "ps3":
             rpcs3_set_pad()
+        if cmd[:2] == ["flatpak", "run"]:
+            flatpak_shader_cache(cmd)
         # Fenêtres X11 (XWayland) : en mode Bureau, Steam ne reconnaît pas une fenêtre Wayland native
         # comme le jeu en cours et applique alors la config manette « Bureau » (souris/clavier).
         env = dict(os.environ, **s.get("env", {}))
