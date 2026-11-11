@@ -62,6 +62,14 @@ const I18N = {
     journal: "Library log", journalTitle: "Library log", journalEmpty: "No game added or removed yet.",
     journalAdd: "Added", journalRemove: "Removed",
     gameOpenWarn: (n) => `${n} is still open. It will be closed, unsaved progress will be lost. Switch profile?`,
+    gameManager: "Game manager", gmAll: "All", gmSummary: (n, size) => `${n} game${n === 1 ? "" : "s"} · ${size}`,
+    gmMeasuring: "measuring…", gmTrash: (size, path) => `FORMULA bin: ${size}, in ${path}. Empty it yourself to free the space.`,
+    gmTrashEmpty: (path) => `FORMULA bin is empty (${path}).`, gmRemove: "Remove", gmEmpty: "No game on this device.",
+    gmConfirm: (title, sys, size, path) => `Remove “${title}” (${sys}, ${size}) from this device?\n\n` +
+      `Saves are not touched. The game goes to the FORMULA bin (${path}), which you empty yourself to free the space. ` +
+      `The other device keeps its copy and will not send it back here.`,
+    gmRemoved: (n) => `${n} moved to the FORMULA bin`, gmFailed: "Could not remove the game (file in use?)",
+    gmBusy: "Quit the game first",
   },
   fr: {
     refresh: "Actualiser", settings: "Paramètres", quit: "Quitter", search: "Rechercher un jeu", searchShort: "Rechercher",
@@ -109,6 +117,14 @@ const I18N = {
     journal: "Journal", journalTitle: "Journal de la bibliothèque", journalEmpty: "Aucun jeu ajouté ni supprimé pour l'instant.",
     journalAdd: "Ajouté", journalRemove: "Supprimé",
     gameOpenWarn: (n) => `${n} est encore ouvert. Il sera fermé et la progression non sauvegardée sera perdue. Changer de profil ?`,
+    gameManager: "Gestionnaire de jeux", gmAll: "Tous", gmSummary: (n, size) => `${n} jeu${n > 1 ? "x" : ""} · ${size}`,
+    gmMeasuring: "calcul…", gmTrash: (size, path) => `Corbeille FORMULA : ${size}, dans ${path}. À vider vous-même pour libérer la place.`,
+    gmTrashEmpty: (path) => `Corbeille FORMULA vide (${path}).`, gmRemove: "Retirer", gmEmpty: "Aucun jeu sur cet appareil.",
+    gmConfirm: (title, sys, size, path) => `Retirer « ${title} » (${sys}, ${size}) de cet appareil ?\n\n` +
+      `Les sauvegardes ne sont pas touchées. Le jeu va dans la corbeille FORMULA (${path}), à vider vous-même pour libérer la place. ` +
+      `L'autre appareil garde sa copie et ne la renverra pas ici.`,
+    gmRemoved: (n) => `${n} est dans la corbeille FORMULA`, gmFailed: "Impossible de retirer le jeu (fichier ouvert ?)",
+    gmBusy: "Quittez d'abord le jeu",
   },
 };
 let LANG = "en";
@@ -980,6 +996,129 @@ function journalHandle(name) {
 }
 $("#journal").addEventListener("click", (e) => { if (e.target.id === "journal" || e.target.closest(".set-close")) closeJournal(); });
 
+// ------------------------------------------------------------ gestionnaire de jeux (taille, retirer de cet appareil)
+// haut / bas : jeux (du plus gros au plus petit), LB / RB (ou gauche / droite) : console, A : retirer, B : fermer
+const TRASH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/></svg>';
+const gm = { open: false, games: [], sys: "", idx: 0, data: null, timer: null };
+async function openGames() {
+  gm.open = true;
+  gm.idx = 0;
+  gm.sys = "";
+  $("#games").classList.remove("hidden");
+  $("#gm-list").innerHTML = "";
+  fetchProfiles();
+  await loadGames();
+}
+function closeGames() {
+  gm.open = false;
+  clearTimeout(gm.timer);
+  $("#games").classList.add("hidden");
+  stopRepeats();
+}
+async function loadGames() {
+  clearTimeout(gm.timer);
+  let d;
+  try { d = await (await fetch("/api/games", { cache: "no-store" })).json(); } catch (e) { return; }
+  if (!gm.open) return;
+  gm.data = d;
+  renderGames();
+  if (d.pending || d.trash == null) gm.timer = setTimeout(loadGames, 1000);
+}
+function gmSystems() {
+  const have = new Set(gm.data.games.map((g) => g.system));
+  return [""].concat(state.systems.filter((s) => have.has(s.id)).sort((a, b) => a.order - b.order).map((s) => s.id));
+}
+function gmList() {
+  return gm.data.games.filter((g) => !gm.sys || g.system === gm.sys)
+    .sort((a, b) => (b.size ?? -1) - (a.size ?? -1) || String(a.title).localeCompare(String(b.title)));
+}
+function renderGames() {
+  const d = gm.data;
+  if (!gmSystems().includes(gm.sys)) gm.sys = "";
+  const curId = gm.games[gm.idx] && gm.games[gm.idx].id;
+  gm.games = gmList();
+  const keep = gm.games.findIndex((g) => g.id === curId);
+  gm.idx = Math.max(0, Math.min(keep >= 0 ? keep : gm.idx, gm.games.length - 1));
+  const total = gm.games.reduce((n, g) => n + (g.size || 0), 0);
+  $("#gm-summary").textContent = t("gmSummary", gm.games.length, d.pending ? t("gmMeasuring") : fmtBytes(total)) +
+    (d.disk ? " — " + t("freeOf", fmtBytes(d.disk.free), fmtBytes(d.disk.total)) : "");
+  $("#gm-filter").innerHTML = gmSystems().map((s) =>
+    `<button class="gm-chip${s === gm.sys ? " on" : ""}" data-sys="${esc(s)}">${esc(s ? sysShort(s) : t("gmAll"))}</button>`).join("");
+  $("#gm-filter").querySelectorAll(".gm-chip").forEach((b) => { b.onclick = () => { gm.sys = b.dataset.sys; gm.idx = 0; renderGames(); }; });
+  const list = $("#gm-list");
+  const top = list.scrollTop;
+  if (!gm.games.length) list.innerHTML = `<p class="jr-empty">${esc(t("gmEmpty"))}</p>`;
+  else list.innerHTML = gm.games.map((g, i) => {
+    const img = coverUrl(g);
+    const pct = g.size != null && total ? (100 * g.size / total) : 0;
+    const pctTxt = g.size == null ? "" : " · " + (pct >= 10 ? Math.round(pct) : pct.toFixed(1)).toString().replace(".", t("dec")) + " %";
+    return `<div class="gm-row" data-i="${i}">
+      <div class="gm-cover" style="--c:${color(g.system)}">${img ? `<img loading="lazy" src="${esc(img)}" alt="">` : ""}</div>
+      <div class="gm-name"><b>${esc(g.title)}</b><span>${esc(sysShort(g.system))}</span></div>
+      <div class="gm-size"><div class="gm-bar"><i style="width:${pct.toFixed(2)}%"></i></div>
+        <span>${g.size == null ? esc(t("gmMeasuring")) : esc(fmtBytes(g.size)) + pctTxt}</span></div>
+      <button class="gm-trash" title="${esc(t("gmRemove"))}">${TRASH_SVG}</button></div>`;
+  }).join("");
+  list.scrollTop = top;
+  list.querySelectorAll(".gm-row").forEach((r) => {
+    r.onmouseenter = () => { gm.idx = +r.dataset.i; paintGames(false); };
+    r.querySelector(".gm-trash").onclick = (e) => { e.stopPropagation(); gm.idx = +r.dataset.i; paintGames(false); gmRemove(); };
+  });
+  $("#gm-trash").textContent = d.trash ? t("gmTrash", fmtBytes(d.trash), d.trashPath) : d.trash === 0 ? t("gmTrashEmpty", d.trashPath) : "";
+  paintGames(false);
+}
+function paintGames(scroll = true) {
+  document.querySelectorAll("#gm-list .gm-row").forEach((r, i) => {
+    r.classList.toggle("cur", i === gm.idx);
+    if (i === gm.idx && scroll) r.scrollIntoView({ block: "nearest" });
+  });
+}
+// poubelle : détail du jeu, confirmation (Non présélectionné), puis code parent s'il existe un compte parent
+async function gmRemove() {
+  const g = gm.games[gm.idx];
+  if (!g) return;
+  if (state.running || gm.data.running) return toast(t("gmBusy"));
+  let info;
+  try { info = await (await fetch("/api/games/preview", { method: "POST", body: JSON.stringify({ id: g.id }) })).json(); }
+  catch (e) { return toast(t("gmFailed")); }
+  if (!info || !info.items) return toast(t("gmFailed"));
+  const send = async (auth) => {
+    let r;
+    try { r = await (await fetch("/api/games/remove", { method: "POST", body: JSON.stringify({ id: g.id, auth }) })).json(); }
+    catch (e) { r = {}; }
+    if (r.error === "auth") return pinBox.open ? pinError(t("pinWrong")) : toast(t("profileError"));
+    closePin();
+    if (!r.ok) return toast(r.error === "running" ? t("gmBusy") : t("gmFailed"));
+    toast(t("gmRemoved", g.title));
+    state.sig = "";
+    load();
+    loadGames();
+  };
+  openConfirm(t("gmConfirm", info.title, sysShort(info.system), fmtBytes(info.size), info.trash), () => {
+    if (pf.parents) askPin({ title: t("pinParent"), onDone: send });
+    else send();
+  });
+}
+function gmHandle(name) {
+  const n = gm.games.length;
+  if (name === "up" || name === "down") {
+    if (n) gm.idx = Math.max(0, Math.min(n - 1, gm.idx + (name === "up" ? -1 : 1)));
+    return paintGames();
+  }
+  if (["lb", "rb", "left", "right"].includes(name)) {
+    const sys = gmSystems();
+    const d = name === "lb" || name === "left" ? -1 : 1;
+    gm.sys = sys[(sys.indexOf(gm.sys) + d + sys.length) % sys.length];
+    gm.idx = 0;
+    $("#gm-list").scrollTop = 0;
+    return renderGames();
+  }
+  if (name === "a" || name === "x") return gmRemove();
+  if (name === "b" || name === "select" || name === "start") return closeGames();
+}
+document.querySelector('[data-action="games"]').onclick = () => openGames();
+$("#games").addEventListener("click", (e) => { if (e.target.id === "games" || e.target.closest(".set-close")) closeGames(); });
+
 // ------------------------------------------------------------ pavé du code (4 chiffres)
 const pinBox = { open: false, digits: "", idx: 4, opts: null, first: null };
 const PIN_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "back", "0", "cancel"];
@@ -1243,6 +1382,7 @@ function overlayHandler() {
   if (journal.open) return journalHandle;
   if (pe.open) return editHandle;
   if (pf.open) return profilesHandle;
+  if (gm.open) return gmHandle;
   if (settings.open) return settingsHandle;
   return null;
 }
@@ -1258,6 +1398,7 @@ document.addEventListener("keydown", (e) => {
     else if (over === pinHandle && e.key === "Escape") closePin(true);
     else if (map[e.key]) over(map[e.key]);
     else if (over === profilesHandle && e.key === "y") profilesHandle("y");
+    else if (over === gmHandle && (e.key === "PageUp" || e.key === "PageDown")) gmHandle(e.key === "PageUp" ? "lb" : "rb");
     else if (osk.open && e.key.length === 1) oskSet(oskGet() + (osk.target ? e.key : e.key.toLowerCase()));
     else return;
     e.preventDefault();
@@ -1277,6 +1418,7 @@ document.addEventListener("keydown", (e) => {
   else if (k === "f") toggleFav();
   else if (k === "s") cycleSort();
   else if (k === "o") openSettings();
+  else if (k === "g") openGames();
   else if (k === "p") openProfiles();
   else if (k === "/") { $("#search").focus(); }
   else if (k === "x") openOsk();

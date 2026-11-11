@@ -26,6 +26,7 @@
   <nav id="nav"></nav>
   <div class="rail-bottom">
     <button class="nav-item small" data-action="rescan"><i>⟳</i><span data-i18n="refresh"></span></button>
+    <button class="nav-item small" data-action="games"><i>▤</i><span data-i18n="gameManager"></span></button>
     <button class="nav-item small" data-action="settings"><i>⚙</i><span data-i18n="settings"></span></button>
     <button class="nav-item small" data-action="quit"><i>⏻</i><span data-i18n="quit"></span></button>
     <div id="version"></div>
@@ -195,6 +196,24 @@
   </div>
 </div>
 
+<!-- gestionnaire de jeux : taille de chaque jeu, retirer un jeu de cet appareil (corbeille FORMULA) -->
+<div id="games" class="hidden">
+  <div class="gm-panel">
+    <div class="set-head">
+      <h2 data-i18n="gameManager"></h2>
+      <div id="gm-summary"></div>
+      <button class="set-close" data-i18n-title="close">✕</button>
+    </div>
+    <div id="gm-filter"></div>
+    <div id="gm-list"></div>
+    <div id="gm-trash"></div>
+    <div class="osk-hints">
+      <span><b class="pad a">A</b><span data-i18n="gmRemove"></span></span>
+      <span><b class="pad sh">LB</b><b class="pad sh">RB</b><span data-i18n="console"></span></span>
+      <span><b class="pad b">B</b><span data-i18n="close"></span></span>
+    </div>
+  </div>
+</div>
 <div id="whomenu" class="hidden"></div>
 <div id="journal" class="hidden">
   <div class="jr-panel">

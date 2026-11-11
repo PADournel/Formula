@@ -117,6 +117,13 @@ FORMULA ne fait rien en douce. Liste exhaustive de ce qu'il fait :
 - Passage aux profils (une fois par appareil) : le contenu des anciens dossiers `kDrive/Saves/<console>` est
   recopié (sans rien écraser, puis vérifié) dans le profil « P.A.D », avec les favoris et les jeux récents.
   Les anciens dossiers restent en place ; le compte rendu est dans `profiles-migrated.json`.
+- Gestionnaire de jeux (colonne de gauche, « Gestionnaire de jeux ») : taille de chaque jeu sur cet appareil.
+  La poubelle demande une confirmation (et le code parent s'il existe un compte parent), puis **déplace** le jeu
+  dans la corbeille FORMULA (`<base>\_corbeille` sous Windows, `~/Emulation/_corbeille` sur le Deck), avec la
+  copie installée par l'émulateur pour les jeux PS3 PSN et PS Vita. Rien n'est effacé et FORMULA ne vide jamais
+  cette corbeille : c'est à toi de la vider pour libérer la place. Chaque déplacement est noté dans
+  `_corbeille/corbeille.json` (d'où, vers où). Les sauvegardes ne sont jamais concernées. La suppression ne vaut
+  que pour cet appareil : la synchro ne recopie pas le jeu ici, et l'autre appareil garde le sien.
 
 ## Organisation
 
