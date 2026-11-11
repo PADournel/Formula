@@ -2811,6 +2811,15 @@ class GameManager:
     def _safe(p):
         return p.exists() and not is_link(p) and not (IS_WIN and os.path.isjunction(p))
 
+    @staticmethod
+    def allowed():
+        """Réservé aux comptes parents dès qu'il en existe un (le profil actif a été ouvert avec son code)."""
+        profiles = PROFILES.load()["profiles"]
+        if not any(p.get("parent") for p in profiles):
+            return True
+        cur = next((p for p in profiles if p["id"] == PROFILES.current), None)
+        return bool(cur and cur.get("parent"))
+
     def items(self, g, games=None):
         """Ce qui est retiré de l'appareil pour ce jeu : le jeu dans roms/<console> (fichier, ou son dossier
         s'il ne contient que lui) et la copie installée par l'émulateur (PS3 PSN, PS Vita). Jamais de sauvegarde."""
@@ -2993,6 +3002,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/journal":
             return self.send(200, {"entries": journal_read()})
         if path == "/api/games":
+            if not GAMES.allowed():
+                return self.send(403, {"error": "parent"})
             return self.send(200, GAMES.listing())
         if path.startswith("/covers/"):
             return self.static(COVERS, path[len("/covers/"):], cache=True)
@@ -3049,6 +3060,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/launch":
             ok, msg = RUN.launch(LIB, body.get("id"))
             return self.send(200 if ok else 409, {"ok": ok, "message": msg})
+        if path.startswith("/api/games/") and not GAMES.allowed():
+            return self.send(403, {"ok": False, "error": "parent"})
         if path == "/api/games/preview":
             info = GAMES.preview(body.get("id"))
             return self.send(200 if info else 404, info or {"error": "missing"})
@@ -3056,8 +3069,6 @@ class Handler(BaseHTTPRequestHandler):
             # gestionnaire de jeux : retire le jeu de cet appareil (corbeille FORMULA), jamais les sauvegardes
             if RUN.running():
                 return self.send(409, {"ok": False, "error": "running"})
-            if not PROFILES.manager_ok(body.get("auth")):
-                return self.send(403, {"ok": False, "error": "auth"})
             ok, err = GAMES.remove(body.get("id"))
             return self.send(200 if ok else 409, {"ok": ok, "error": None if ok else err})
         if path == "/api/rescan":

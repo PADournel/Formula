@@ -69,7 +69,7 @@ const I18N = {
       `Saves are not touched. The game goes to the FORMULA bin (${path}), which you empty yourself to free the space. ` +
       `The other device keeps its copy and will not send it back here.`,
     gmRemoved: (n) => `${n} moved to the FORMULA bin`, gmFailed: "Could not remove the game (file in use?)",
-    gmBusy: "Quit the game first",
+    gmBusy: "Quit the game first", gmParents: "Parent accounts only", holdYes: "Hold 2 s",
   },
   fr: {
     refresh: "Actualiser", settings: "Paramètres", quit: "Quitter", search: "Rechercher un jeu", searchShort: "Rechercher",
@@ -124,7 +124,7 @@ const I18N = {
       `Les sauvegardes ne sont pas touchées. Le jeu va dans la corbeille FORMULA (${path}), à vider vous-même pour libérer la place. ` +
       `L'autre appareil garde sa copie et ne la renverra pas ici.`,
     gmRemoved: (n) => `${n} est dans la corbeille FORMULA`, gmFailed: "Impossible de retirer le jeu (fichier ouvert ?)",
-    gmBusy: "Quittez d'abord le jeu",
+    gmBusy: "Quittez d'abord le jeu", gmParents: "Réservé aux comptes parents", holdYes: "Maintenir 2 s",
   },
 };
 let LANG = "en";
@@ -359,7 +359,7 @@ function applyFocus(scroll = true) {
   updateHero();
 }
 function focusGrid(i, scroll = true) { state.zone = "grid"; state.gi = i; applyFocus(scroll); }
-const railItems = () => [...document.querySelectorAll("#rail .nav-item")];
+const railItems = () => [...document.querySelectorAll("#rail .nav-item")].filter((e) => !e.classList.contains("hidden"));
 // barre du haut à la manette : recherche, tri, synchro / journal, profil
 const topItems = () => [...document.querySelectorAll("#top .top-item")].filter((e) => !e.classList.contains("hidden"));
 
@@ -664,25 +664,46 @@ $("#settings .set-close").onclick = closeSettings;
 $("#settings").addEventListener("click", (e) => { if (e.target.id === "settings") closeSettings(); });
 
 // ------------------------------------------------------------ fenêtre de confirmation (Oui = A, Non = B)
-const confirmBox = { open: false, onYes: null, sel: 1 };
-function openConfirm(text, onYes) {
+// hold (ms) : « Oui » ne valide qu'en maintenant A (ou Entrée, ou le clic) pendant ce temps ; relâcher annule
+const confirmBox = { open: false, onYes: null, sel: 1, hold: 0, holdT: null };
+function openConfirm(text, onYes, hold = 0) {
   confirmBox.open = true;
   confirmBox.onYes = onYes;
   confirmBox.sel = 1;   // « Non » présélectionné à la souris/clavier
+  confirmBox.hold = hold;
   $("#confirm-text").textContent = text;
+  $("#confirm-yes span").textContent = t(hold ? "holdYes" : "yes");
+  $("#confirm-yes").style.setProperty("--hold", hold / 1000 + "s");
+  $("#confirm").classList.toggle("hold", !!hold);
   $("#confirm").classList.remove("hidden");
 }
 function closeConfirm(yes) {
+  holdStop();
   confirmBox.open = false;
   $("#confirm").classList.add("hidden");
   stopRepeats();
   if (yes && confirmBox.onYes) confirmBox.onYes();
 }
-function confirmHandle(name) {
-  if (name === "a") closeConfirm(true);
-  else if (name === "b" || name === "start" || name === "select") closeConfirm(false);
+function holdStart() {
+  if (!confirmBox.open || confirmBox.holdT) return;
+  $("#confirm-yes").classList.add("holding");
+  confirmBox.holdT = setTimeout(() => { confirmBox.holdT = null; closeConfirm(true); }, confirmBox.hold);
 }
-$("#confirm-yes").onclick = () => closeConfirm(true);
+function holdStop() {
+  clearTimeout(confirmBox.holdT);
+  confirmBox.holdT = null;
+  $("#confirm-yes").classList.remove("holding");
+}
+// bouton relâché (manette, clavier) : annule une validation en cours de maintien
+function padRelease(name) { if (confirmBox.open && name === "a") holdStop(); }
+function confirmHandle(name) {
+  if (name === "a") return confirmBox.hold ? holdStart() : closeConfirm(true);
+  if (name === "b" || name === "start" || name === "select") closeConfirm(false);
+}
+$("#confirm-yes").onclick = () => { if (!confirmBox.hold) closeConfirm(true); };
+$("#confirm-yes").addEventListener("pointerdown", () => { if (confirmBox.hold) holdStart(); });
+["pointerup", "pointerleave", "pointercancel"].forEach((ev) => $("#confirm-yes").addEventListener(ev, holdStop));
+document.addEventListener("keyup", (e) => { if (e.key === "Enter" || e.key === " ") padRelease("a"); });
 $("#confirm-no").onclick = () => closeConfirm(false);
 $("#confirm").addEventListener("click", (e) => { if (e.target.id === "confirm") closeConfirm(false); });
 
@@ -803,6 +824,7 @@ async function fetchProfiles() {
 }
 function paintWho() {
   const p = pf.list.find((x) => x.id === pf.cur);
+  document.querySelector('[data-action="games"]').classList.toggle("hidden", !gmAllowed());
   $("#who").classList.toggle("hidden", !p);
   if (!p) return;
   $("#who-avatar").innerHTML = avatarHtml(p);
@@ -999,14 +1021,16 @@ $("#journal").addEventListener("click", (e) => { if (e.target.id === "journal" |
 // ------------------------------------------------------------ gestionnaire de jeux (taille, retirer de cet appareil)
 // haut / bas : jeux (du plus gros au plus petit), LB / RB (ou gauche / droite) : console, A : retirer, B : fermer
 const TRASH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/></svg>';
-const gm = { open: false, games: [], sys: "", idx: 0, data: null, timer: null };
+const gm = { open: false, games: [], sys: "", idx: 0, data: null, timer: null, removing: new Set() };
+// réservé aux comptes parents dès qu'il en existe un (sinon ouvert à tous)
+const gmAllowed = () => !pf.parents || !!(pf.list.find((p) => p.id === pf.cur) || {}).parent;
 async function openGames() {
+  if (!gmAllowed()) return toast(t("gmParents"));
   gm.open = true;
   gm.idx = 0;
   gm.sys = "";
   $("#games").classList.remove("hidden");
   $("#gm-list").innerHTML = "";
-  fetchProfiles();
   await loadGames();
 }
 function closeGames() {
@@ -1052,7 +1076,7 @@ function renderGames() {
     const img = coverUrl(g);
     const pct = g.size != null && total ? (100 * g.size / total) : 0;
     const pctTxt = g.size == null ? "" : " · " + (pct >= 10 ? Math.round(pct) : pct.toFixed(1)).toString().replace(".", t("dec")) + " %";
-    return `<div class="gm-row" data-i="${i}">
+    return `<div class="gm-row${gm.removing.has(g.id) ? " removing" : ""}" data-i="${i}">
       <div class="gm-cover" style="--c:${color(g.system)}">${img ? `<img loading="lazy" src="${esc(img)}" alt="">` : ""}</div>
       <div class="gm-name"><b>${esc(g.title)}</b><span>${esc(sysShort(g.system))}</span></div>
       <div class="gm-size"><div class="gm-bar"><i style="width:${pct.toFixed(2)}%"></i></div>
@@ -1073,31 +1097,32 @@ function paintGames(scroll = true) {
     if (i === gm.idx && scroll) r.scrollIntoView({ block: "nearest" });
   });
 }
-// poubelle : détail du jeu, confirmation (Non présélectionné), puis code parent s'il existe un compte parent
+// poubelle : détail du jeu, puis confirmation à maintenir 2 s ; la ligne est grisée pendant le déplacement
+// et disparaît de la liste dès qu'il est fait
 async function gmRemove() {
   const g = gm.games[gm.idx];
-  if (!g) return;
+  if (!g || gm.removing.has(g.id)) return;
   if (state.running || gm.data.running) return toast(t("gmBusy"));
   let info;
   try { info = await (await fetch("/api/games/preview", { method: "POST", body: JSON.stringify({ id: g.id }) })).json(); }
   catch (e) { return toast(t("gmFailed")); }
   if (!info || !info.items) return toast(t("gmFailed"));
-  const send = async (auth) => {
-    let r;
-    try { r = await (await fetch("/api/games/remove", { method: "POST", body: JSON.stringify({ id: g.id, auth }) })).json(); }
-    catch (e) { r = {}; }
-    if (r.error === "auth") return pinBox.open ? pinError(t("pinWrong")) : toast(t("profileError"));
-    closePin();
-    if (!r.ok) return toast(r.error === "running" ? t("gmBusy") : t("gmFailed"));
-    toast(t("gmRemoved", g.title));
-    state.sig = "";
-    load();
-    loadGames();
-  };
-  openConfirm(t("gmConfirm", info.title, sysShort(info.system), fmtBytes(info.size), info.trash), () => {
-    if (pf.parents) askPin({ title: t("pinParent"), onDone: send });
-    else send();
-  });
+  openConfirm(t("gmConfirm", info.title, sysShort(info.system), fmtBytes(info.size), info.trash), () => gmSend(g), 2000);
+}
+async function gmSend(g) {
+  gm.removing.add(g.id);
+  renderGames();
+  let r;
+  try { r = await (await fetch("/api/games/remove", { method: "POST", body: JSON.stringify({ id: g.id }) })).json(); }
+  catch (e) { r = {}; }
+  gm.removing.delete(g.id);
+  if (r.ok && gm.data) gm.data.games = gm.data.games.filter((x) => x.id !== g.id);
+  if (gm.open && gm.data) renderGames();
+  if (!r.ok) return toast(r.error === "running" ? t("gmBusy") : r.error === "parent" ? t("gmParents") : t("gmFailed"));
+  toast(t("gmRemoved", g.title));
+  state.sig = "";
+  load();
+  if (gm.open) loadGames();      // taille de la corbeille
 }
 function gmHandle(name) {
   const n = gm.games.length;
@@ -1390,6 +1415,7 @@ function overlayHandler() {
 // ------------------------------------------------------------ clavier
 document.addEventListener("keydown", (e) => {
   const over = overlayHandler();
+  if (over === confirmHandle && e.repeat) { e.preventDefault(); return; }
   if (over) {
     // nom du profil tapé au clavier (PC) : le champ garde les touches de saisie
     if (over === editHandle && document.activeElement === $("#pe-name") && !["Enter", "Escape", "ArrowUp", "ArrowDown", "Tab"].includes(e.key)) return;
@@ -1455,6 +1481,7 @@ function connectPad() {
     if (!act) return;
     clearTimeout(repeats[m.b]);
     delete repeats[m.b];
+    if (!m.v) padRelease(m.b);
     if (!m.v || state.running || document.visibilityState !== "visible") return;
     act[0]();
     if (act[1]) {
@@ -1480,7 +1507,7 @@ function padLoop(ts) {
     };
     const act = { a: b(0), b: b(1), x: b(2), y: b(3), lb: b(4), rb: b(5), lt: b(6), rt: b(7), start: b(9), select: b(8), l3: b(10), r3: b(11) };
     const fire = (name, on, fn, repeat) => {
-      if (!on) { pad.held[name] = false; return; }
+      if (!on) { if (pad.held[name]) padRelease(name); pad.held[name] = false; return; }
       if (!pad.held[name]) { pad.held[name] = true; pad.next[name] = ts + 380; fn(); }
       else if (repeat && ts >= pad.next[name]) { pad.next[name] = ts + 95; fn(); }
     };

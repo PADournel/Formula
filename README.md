@@ -118,7 +118,8 @@ FORMULA ne fait rien en douce. Liste exhaustive de ce qu'il fait :
   recopié (sans rien écraser, puis vérifié) dans le profil « P.A.D », avec les favoris et les jeux récents.
   Les anciens dossiers restent en place ; le compte rendu est dans `profiles-migrated.json`.
 - Gestionnaire de jeux (colonne de gauche, « Gestionnaire de jeux ») : taille de chaque jeu sur cet appareil.
-  La poubelle demande une confirmation (et le code parent s'il existe un compte parent), puis **déplace** le jeu
+  Dès qu'il existe un compte parent, cet écran n'est proposé qu'aux profils parents. La poubelle demande une
+  confirmation, à valider en maintenant A (ou Entrée, ou le clic) pendant 2 s, puis **déplace** le jeu
   dans la corbeille FORMULA (`<base>\_corbeille` sous Windows, `~/Emulation/_corbeille` sur le Deck), avec la
   copie installée par l'émulateur pour les jeux PS3 PSN et PS Vita. Rien n'est effacé et FORMULA ne vide jamais
   cette corbeille : c'est à toi de la vider pour libérer la place. Chaque déplacement est noté dans
