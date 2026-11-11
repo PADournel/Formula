@@ -588,6 +588,7 @@ function settingsHandle(name) {
     if (settings.row < opts) document.querySelectorAll(optRows()[settings.row] + " .set-opt")[settings.col]?.click();
     else toggleEmu(settings.emus[settings.row - opts]);
   }
+  else if (name === "l3" || name === "r3") { closeSettings(); return openProfiles(); }
   else if (name === "b" || name === "select" || name === "start") return closeSettings();
   paintSettings();
 }
@@ -1065,6 +1066,7 @@ document.addEventListener("keydown", (e) => {
   else if (k === "f") toggleFav();
   else if (k === "s") cycleSort();
   else if (k === "o") openSettings();
+  else if (k === "p") openProfiles();
   else if (k === "/") { $("#search").focus(); }
   else if (k === "x") openOsk();
   else if (k === "-") zoomStep(-1);
@@ -1082,6 +1084,8 @@ const PAD_ACTIONS = {
   lb: [() => cycleView(-1), true], rb: [() => cycleView(1), true],
   lt: [() => zoomStep(-1), true], rt: [() => zoomStep(1), true],
   start: [() => cycleSort()], select: [() => openSettings()],
+  // clic d'un stick : « Qui joue ? » directement (Deck docké, sans tactile)
+  l3: [() => openProfiles()], r3: [() => openProfiles()],
 };
 const repeats = {};
 function stopRepeats() { for (const k in repeats) { clearTimeout(repeats[k]); delete repeats[k]; } }
@@ -1121,7 +1125,7 @@ function padLoop(ts) {
       up: b(12) || ax(1) < -0.5, down: b(13) || ax(1) > 0.5,
       left: b(14) || ax(0) < -0.5, right: b(15) || ax(0) > 0.5,
     };
-    const act = { a: b(0), b: b(1), x: b(2), y: b(3), lb: b(4), rb: b(5), lt: b(6), rt: b(7), start: b(9), select: b(8) };
+    const act = { a: b(0), b: b(1), x: b(2), y: b(3), lb: b(4), rb: b(5), lt: b(6), rt: b(7), start: b(9), select: b(8), l3: b(10), r3: b(11) };
     const fire = (name, on, fn, repeat) => {
       if (!on) { pad.held[name] = false; return; }
       if (!pad.held[name]) { pad.held[name] = true; pad.next[name] = ts + 380; fn(); }
