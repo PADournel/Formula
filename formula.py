@@ -16,6 +16,7 @@ import hashlib
 import hmac
 import html
 import json
+import math
 import os
 import re
 import secrets
@@ -2171,6 +2172,9 @@ class PadReader:
         self.clients = []
         self.lock = threading.Lock()
         self.keys = None         # KeyInjector pendant qu'un sélecteur de fichiers est ouvert
+        self.rs_axes = {}        # fd -> {axe: (centre, demi-plage, 0 = X / 1 = Y)} du stick droit
+        self.rs_xy = {}          # fd -> [x, y] du stick droit, de -1 à 1 (y positif = bas)
+        self.rs_angle = 0.0      # angle du stick droit quand il est poussé (0° = droite, 90° = haut)
 
     def keys_on(self):
         """Sélecteur de fichiers du système ouvert : la manette y tape au clavier (flèches, Entrée…)."""
@@ -2222,6 +2226,8 @@ class PadReader:
                 fd = self.fds.pop(p)
                 self.absr.pop(fd, None)
                 self.trig.pop(fd, None)
+                self.rs_axes.pop(fd, None)
+                self.rs_xy.pop(fd, None)
                 for (s, n) in [k for k in self.src if isinstance(k[0], tuple) and k[0][1] == fd]:
                     self.set_src(s, n, False)
                 os.close(fd)
@@ -2230,6 +2236,7 @@ class PadReader:
                 fd = self.fds[p] = os.open(p, os.O_RDONLY | os.O_NONBLOCK)
                 self.absr[fd] = self.axis_ranges(fd)
                 self.trig[fd] = self.trigger_axes(fd)
+                self.rs_axes[fd] = self.right_stick_axes(fd)
             except OSError:
                 pass
 
@@ -2260,7 +2267,23 @@ class PadReader:
             return
         if IS_WIN and new and not win_browser_in_front():
             return  # une autre fenêtre est au premier plan : elle garde la manette
-        self.emit({"b": name, "v": 1 if new else 0})
+        msg = {"b": name, "v": 1 if new else 0}
+        if name == "rs":         # stick droit : l'interface choisit la section visée d'après l'angle
+            msg["a"] = round(self.rs_angle)
+        self.emit(msg)
+
+    # Stick droit : saut d'une section de l'écran à l'autre. Il compte comme « poussé » au-delà
+    # de 60 % de sa course et comme relâché sous 35 % (zone morte + hystérésis) : un geste = un saut.
+    RS_ON, RS_OFF = 0.6, 0.35
+
+    def set_rs(self, source, x, y):
+        """x, y de -1 à 1, y positif = haut."""
+        mag = math.hypot(x, y)
+        cur = self.src.get((source, "rs"), False)
+        on = mag > (self.RS_OFF if cur else self.RS_ON)
+        if on and not cur:
+            self.rs_angle = math.degrees(math.atan2(y, x)) % 360
+        self.set_src(source, "rs", on)
 
     @staticmethod
     def axis_ranges(fd):
@@ -2310,6 +2333,32 @@ class PadReader:
                 out[code] = (name,) + rng[code]
         return out
 
+    @staticmethod
+    def right_stick_axes(fd):
+        """Axes du stick droit : ABS_RX / ABS_RY (manette virtuelle de Steam, xpad) ou, pour une
+        manette Xbox en Bluetooth vue en direct (gâchettes sur ABS_BRAKE / ABS_GAS), ABS_Z / ABS_RZ."""
+        rng = {}
+        try:
+            import fcntl
+            for code in (2, 3, 4, 5, 9, 10):
+                buf = bytearray(24)
+                try:
+                    fcntl.ioctl(fd, 0x80184540 + code, buf)  # EVIOCGABS(code)
+                except OSError:
+                    continue
+                _, lo, hi, _, _, _ = struct.unpack("6i", buf)
+                if hi > lo:
+                    rng[code] = ((lo + hi) / 2, (hi - lo) / 2)
+        except ImportError:
+            return {}
+        if 3 in rng and 4 in rng:
+            pair = (3, 4)
+        elif 2 in rng and 5 in rng and (9 in rng or 10 in rng):
+            pair = (2, 5)
+        else:
+            return {}
+        return {code: rng[code] + (i,) for i, code in enumerate(pair)}
+
     def handle(self, etype, code, value, fd=None):
         # une source par périphérique : la même manette peut apparaître deux fois
         # (en direct et via Steam), leurs états ne doivent pas s'écraser
@@ -2324,6 +2373,11 @@ class PadReader:
             v = (value - lo) / (hi - lo)
             cur = self.src.get((("trig", fd), name), False)
             self.set_src(("trig", fd), name, v > 0.3 if cur else v > 0.5)
+        elif etype == 3 and code in self.rs_axes.get(fd, {}):   # stick droit : saut de section
+            mid, half, i = self.rs_axes[fd][code]
+            xy = self.rs_xy.setdefault(fd, [0.0, 0.0])
+            xy[i] = max(-1.0, min(1.0, (value - mid) / half))
+            self.set_rs(("rstick", fd), xy[0], -xy[1])
         elif etype == 3 and code in (0, 1):            # stick gauche, avec hystérésis
             mid, half = self.absr.get(fd, {}).get(code, (0, 32767))
             value = (value - mid) * 32767 / half
@@ -2366,13 +2420,15 @@ class PadReader:
         self.fds = {"xinput": 0}   # signale à l'interface qu'une manette est lue côté serveur
         while True:
             self.check_resume()
-            buttons, lx, ly, lt, rt = 0, 0, 0, 0, 0
+            buttons, lx, ly, rx, ry, lt, rt = 0, 0, 0, 0, 0, 0, 0
             for user in range(4):
                 if xi.XInputGetState(user, ctypes.byref(st)) == 0:
                     buttons |= st.buttons
                     lt, rt = max(lt, st.lt), max(rt, st.rt)
                     lx = lx if abs(lx) > abs(st.lx) else st.lx
                     ly = ly if abs(ly) > abs(st.ly) else st.ly
+                    if st.rx * st.rx + st.ry * st.ry > rx * rx + ry * ry:
+                        rx, ry = st.rx, st.ry
             for bit, name in self.XI_BUTTONS.items():
                 self.set_src("btn", name, bool(buttons & bit))
             # gâchettes (taille des jaquettes), avec hystérésis
@@ -2384,6 +2440,8 @@ class PadReader:
                 cur = self.src.get(("stick", name), False)
                 v = val * sign
                 self.set_src("stick", name, v > 9000 if cur else v > 16000)
+            # stick droit : saut de section (axe Y XInput : positif = haut)
+            self.set_rs("rstick", rx / 32767, ry / 32767)
             time.sleep(0.016)
 
     def loop(self):
