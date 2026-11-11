@@ -90,7 +90,7 @@ def ppsspp():
 
 RPCS3_XINPUT = """Player 1 Input:
   Handler: XInput
-  Device: XInput Pad #1
+  Device: "XInput Pad #1"
   Config:
     Left Stick Left: LS X-
     Left Stick Down: LS Y-
@@ -132,7 +132,8 @@ def rpcs3():
     # sans profil d'entrées il prend le clavier. Les manettes XInput y sont numérotées à partir de 1.
     pad = d / "config" / "input_configs" / "global" / "Default.yml"
     current = pad.read_text(encoding="utf-8", errors="replace") if pad.exists() else ""
-    if not re.search(r"Player 1 Input:\n  Handler: XInput\n  Device: XInput Pad #[1-4]\n", current):
+    # nom entre guillemets : sans eux, YAML lit « #1 » comme un commentaire et RPCS3 ne trouve pas la manette
+    if not re.search(r'Player 1 Input:\n  Handler: XInput\n  Device: "XInput Pad #[1-4]"\n', current):
         pad.parent.mkdir(parents=True, exist_ok=True)
         pad.write_text(RPCS3_XINPUT, encoding="utf-8")
     junction(d / "dev_hdd0" / "home" / "00000001" / "savedata", SAVES / "PS3" / "savedata")
