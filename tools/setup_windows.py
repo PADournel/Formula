@@ -88,13 +88,57 @@ def ppsspp():
     junction(d / "memstick" / "PSP" / "PPSSPP_STATE", SAVES / "PSP" / "PPSSPP_STATE")
 
 
+RPCS3_XINPUT = """Player 1 Input:
+  Handler: XInput
+  Device: XInput Pad #1
+  Config:
+    Left Stick Left: LS X-
+    Left Stick Down: LS Y-
+    Left Stick Right: LS X+
+    Left Stick Up: LS Y+
+    Right Stick Left: RS X-
+    Right Stick Down: RS Y-
+    Right Stick Right: RS X+
+    Right Stick Up: RS Y+
+    Start: Start
+    Select: Back
+    PS Button: Guide
+    Square: X
+    Cross: A
+    Circle: B
+    Triangle: Y
+    Left: Left
+    Down: Down
+    Right: Right
+    Up: Up
+    R1: RB
+    R2: RT
+    R3: RS
+    L1: LB
+    L2: LT
+    L3: LS
+    Left Stick Deadzone: 7849
+    Right Stick Deadzone: 8689
+    Left Trigger Threshold: 30
+    Right Trigger Threshold: 30
+    Left Pad Squircling Factor: 8000
+    Right Pad Squircling Factor: 8000
+"""
+
+
 def rpcs3():
     d = EMU / "rpcs3"
-    (d / "input_configs" / "global").mkdir(parents=True, exist_ok=True)
-    (d / "input_configs" / "global" / "Default.yml").write_text(
-        "Player 1 Input:\n  Handler: XInput\n  Device: XInput Pad #0\n", encoding="utf-8")
+    # RPCS3 récent lit ses réglages dans config/ (input_configs/ et config.yml à la racine sont ignorés) ;
+    # sans profil d'entrées il prend le clavier. Les manettes XInput y sont numérotées à partir de 1.
+    pad = d / "config" / "input_configs" / "global" / "Default.yml"
+    current = pad.read_text(encoding="utf-8", errors="replace") if pad.exists() else ""
+    if not re.search(r"Player 1 Input:\n  Handler: XInput\n  Device: XInput Pad #[1-4]\n", current):
+        pad.parent.mkdir(parents=True, exist_ok=True)
+        pad.write_text(RPCS3_XINPUT, encoding="utf-8")
     junction(d / "dev_hdd0" / "home" / "00000001" / "savedata", SAVES / "PS3" / "savedata")
-    cfg = d / "config.yml"
+    cfg = d / "config" / "config.yml"
+    if not cfg.exists():
+        cfg = d / "config.yml"
     if cfg.exists():
         cfg.write_text(re.sub(r"(\n  Language: ).*", r"\1French", cfg.read_text(encoding="utf-8"), count=1),
                        encoding="utf-8")
