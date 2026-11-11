@@ -53,10 +53,10 @@ const I18N = {
     switchProfile: "Switch profile", profileFull: "4 profiles maximum", profileError: "Could not save the profile",
     needProfile: "Choose a profile first",
     image: "Picture", imagePick: "Choose a picture…", imageClear: "Remove the picture",
-    imageHint: "Best: a square picture, 1000 x 1000 pixels, JPEG or PNG. Other sizes are cropped to the centre.",
+    imageHint: "Best: a square picture, 1000 x 1000 pixels, JPEG, PNG or WebP. Other sizes are cropped to the centre. It is saved as a JPEG in kDrive and shows on every device.",
     imagePadHint: "In the file window, with the controller: D-pad to move, A to open or choose, X to go up a folder, LB/RB to switch area, B to cancel.",
     imageChosen: (w, h) => `Picture chosen: ${w} x ${h} px` + (w && h && w !== h ? ", cropped to the centre" : ""),
-    imageOpening: "Opening the file explorer…", imageBad: "This file is not a JPEG or PNG picture",
+    imageOpening: "Opening the file explorer…", imageBad: "This file is not a JPEG, PNG or WebP picture",
     imageBig: "Picture too large (20 MB maximum)", imageRead: "Could not read this file",
     imageNoDialog: "No file explorer available on this device",
     journal: "Library log", journalTitle: "Library log", journalEmpty: "No game added or removed yet.",
@@ -100,10 +100,10 @@ const I18N = {
     switchProfile: "Changer de profil", profileFull: "4 profils au maximum", profileError: "Enregistrement du profil impossible",
     needProfile: "Choisis d'abord un profil",
     image: "Image", imagePick: "Choisir une image…", imageClear: "Retirer l'image",
-    imageHint: "Conseillé : une image carrée de 1000 x 1000 pixels, en JPEG ou en PNG. Une autre taille est recadrée au centre.",
+    imageHint: "Conseillé : une image carrée de 1000 x 1000 pixels, en JPEG, PNG ou WebP. Une autre taille est recadrée au centre. Elle est enregistrée en JPEG dans kDrive et s'affiche sur tous les appareils.",
     imagePadHint: "Dans la fenêtre de l'explorateur, à la manette : croix pour se déplacer, A pour ouvrir ou choisir, X pour remonter d'un dossier, LB/RB pour changer de zone, B pour annuler.",
     imageChosen: (w, h) => `Image choisie : ${w} x ${h} px` + (w && h && w !== h ? ", recadrée au centre" : ""),
-    imageOpening: "Ouverture de l'explorateur de fichiers…", imageBad: "Ce fichier n'est pas une image JPEG ou PNG",
+    imageOpening: "Ouverture de l'explorateur de fichiers…", imageBad: "Ce fichier n'est pas une image JPEG, PNG ou WebP",
     imageBig: "Image trop lourde (20 Mo au maximum)", imageRead: "Lecture du fichier impossible",
     imageNoDialog: "Aucun explorateur de fichiers disponible sur cet appareil",
     journal: "Journal", journalTitle: "Journal de la bibliothèque", journalEmpty: "Aucun jeu ajouté ni supprimé pour l'instant.",
@@ -773,7 +773,7 @@ const pf = { open: false, list: [], cur: null, last: null, max: 4, parents: fals
 const FACE = '<svg class="face" viewBox="0 0 64 64" aria-hidden="true"><circle class="eye" cx="22" cy="25" r="4.5"/><circle class="eye" cx="42" cy="25" r="4.5"/><path d="M19 39c7 8 19 8 26 0"/></svg>';
 const LOCK = '<span class="lock"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>';
 // image du profil (Profils/_avatars, synchronisée par kDrive) ; tant qu'elle n'est pas arrivée : le visage
-const avatarSrc = (p) => (p.avatarUrl !== undefined ? p.avatarUrl : p.avatar ? "/api/avatar/" + encodeURIComponent(p.avatar) : null);
+const avatarSrc = (p) => (p.avatarUrl !== undefined ? p.avatarUrl : p.avatar ? `/api/avatar/${encodeURIComponent(p.id)}?v=${encodeURIComponent(p.avatar)}` : null);
 function avatarHtml(p) {
   const src = avatarSrc(p);
   const img = src ? `<img src="${esc(src)}" alt="" draggable="false" onerror="this.remove()">` : "";
@@ -1123,7 +1123,29 @@ if (hasHost()) {
   });
   window.chrome.webview.postMessage("caps?");
 }
-function imageResult(d) {
+// image choisie -> JPEG carré 1000 x 1000 (recadrée au centre, fond à la couleur du profil), renvoyé au serveur
+const AVATAR_SIZE = 1000;
+async function convertImage(url, color) {
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  const w = img.naturalWidth, h = img.naturalHeight, side = Math.min(w, h);
+  const c = document.createElement("canvas");
+  c.width = c.height = AVATAR_SIZE;
+  const g = c.getContext("2d");
+  g.fillStyle = color || "#8b6cff";
+  g.fillRect(0, 0, AVATAR_SIZE, AVATAR_SIZE);
+  g.imageSmoothingQuality = "high";
+  g.drawImage(img, (w - side) / 2, (h - side) / 2, side, side, 0, 0, AVATAR_SIZE, AVATAR_SIZE);
+  const blob = await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.9));
+  const d = await (await fetch("/api/avatar/upload", { method: "POST", body: blob })).json();
+  return Object.assign(d, { w, h });
+}
+async function imageResult(d) {
+  if (d && d.ok) {
+    try { d = await convertImage(d.url, pe.p ? pe.p.color : null); }
+    catch (e) { d = { ok: false, error: "format" }; }
+  }
   pe.picking = false;
   if (d && d.ok) { pe.img = { token: d.token, url: d.url, w: d.w, h: d.h }; return paintEdit(); }
   const err = d && d.error;
@@ -1139,13 +1161,13 @@ async function pickImage() {
     return;
   }
   toast(t("imageOpening"));
-  try { imageResult(await (await fetch("/api/avatar/pick", { method: "POST", body: "{}" })).json()); }
+  try { await imageResult(await (await fetch("/api/avatar/pick", { method: "POST", body: "{}" })).json()); }
   catch (e) { imageResult(null); }
 }
 async function hostPicked(path) {
   await fetch("/api/pad-keys", { method: "POST", body: JSON.stringify({ on: false }) }).catch(() => {});
   if (!path) return imageResult({ ok: false, error: "cancel" });
-  try { imageResult(await (await fetch("/api/avatar/path", { method: "POST", body: JSON.stringify({ path }) })).json()); }
+  try { await imageResult(await (await fetch("/api/avatar/path", { method: "POST", body: JSON.stringify({ path }) })).json()); }
   catch (e) { imageResult(null); }
 }
 function clearImage() {

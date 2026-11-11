@@ -324,8 +324,8 @@ class Host : Form
         {
             using (OpenFileDialog d = new OpenFileDialog())
             {
-                d.Title = "Image du profil (1000 x 1000, JPEG ou PNG)";
-                d.Filter = "Images JPEG / PNG|*.jpg;*.jpeg;*.png";
+                d.Title = "Image du profil (1000 x 1000, JPEG, PNG ou WebP)";
+                d.Filter = "Images JPEG / PNG / WebP|*.jpg;*.jpeg;*.png;*.webp";
                 d.InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
                 d.CheckFileExists = true;
                 if (d.ShowDialog(this) == DialogResult.OK) path = d.FileName;
