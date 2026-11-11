@@ -52,6 +52,13 @@ const I18N = {
     profile: "Profile", profileHint: "Each profile has its own saves, favourites and recently played games.",
     switchProfile: "Switch profile", profileFull: "4 profiles maximum", profileError: "Could not save the profile",
     needProfile: "Choose a profile first",
+    image: "Picture", imagePick: "Choose a picture…", imageClear: "Remove the picture",
+    imageHint: "Best: a square picture, 1000 x 1000 pixels, JPEG or PNG. Other sizes are cropped to the centre.",
+    imagePadHint: "In the file window, with the controller: D-pad to move, A to open or choose, X to go up a folder, LB/RB to switch area, B to cancel.",
+    imageChosen: (w, h) => `Picture chosen: ${w} x ${h} px` + (w && h && w !== h ? ", cropped to the centre" : ""),
+    imageOpening: "Opening the file explorer…", imageBad: "This file is not a JPEG or PNG picture",
+    imageBig: "Picture too large (20 MB maximum)", imageRead: "Could not read this file",
+    imageNoDialog: "No file explorer available on this device",
     journal: "Library log", journalTitle: "Library log", journalEmpty: "No game added or removed yet.",
     journalAdd: "Added", journalRemove: "Removed",
     gameOpenWarn: (n) => `${n} is still open. It will be closed, unsaved progress will be lost. Switch profile?`,
@@ -92,6 +99,13 @@ const I18N = {
     profile: "Profil", profileHint: "Chaque profil a ses propres sauvegardes, favoris et jeux récents.",
     switchProfile: "Changer de profil", profileFull: "4 profils au maximum", profileError: "Enregistrement du profil impossible",
     needProfile: "Choisis d'abord un profil",
+    image: "Image", imagePick: "Choisir une image…", imageClear: "Retirer l'image",
+    imageHint: "Conseillé : une image carrée de 1000 x 1000 pixels, en JPEG ou en PNG. Une autre taille est recadrée au centre.",
+    imagePadHint: "Dans la fenêtre de l'explorateur, à la manette : croix pour se déplacer, A pour ouvrir ou choisir, X pour remonter d'un dossier, LB/RB pour changer de zone, B pour annuler.",
+    imageChosen: (w, h) => `Image choisie : ${w} x ${h} px` + (w && h && w !== h ? ", recadrée au centre" : ""),
+    imageOpening: "Ouverture de l'explorateur de fichiers…", imageBad: "Ce fichier n'est pas une image JPEG ou PNG",
+    imageBig: "Image trop lourde (20 Mo au maximum)", imageRead: "Lecture du fichier impossible",
+    imageNoDialog: "Aucun explorateur de fichiers disponible sur cet appareil",
     journal: "Journal", journalTitle: "Journal de la bibliothèque", journalEmpty: "Aucun jeu ajouté ni supprimé pour l'instant.",
     journalAdd: "Ajouté", journalRemove: "Supprimé",
     gameOpenWarn: (n) => `${n} est encore ouvert. Il sera fermé et la progression non sauvegardée sera perdue. Changer de profil ?`,
@@ -758,8 +772,12 @@ $("#search").addEventListener("pointerdown", (e) => { if (e.pointerType === "tou
 const pf = { open: false, list: [], cur: null, last: null, max: 4, parents: false, idx: 0, row: 0, manage: false, auth: null };
 const FACE = '<svg class="face" viewBox="0 0 64 64" aria-hidden="true"><circle class="eye" cx="22" cy="25" r="4.5"/><circle class="eye" cx="42" cy="25" r="4.5"/><path d="M19 39c7 8 19 8 26 0"/></svg>';
 const LOCK = '<span class="lock"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>';
+// image du profil (Profils/_avatars, synchronisée par kDrive) ; tant qu'elle n'est pas arrivée : le visage
+const avatarSrc = (p) => (p.avatarUrl !== undefined ? p.avatarUrl : p.avatar ? "/api/avatar/" + encodeURIComponent(p.avatar) : null);
 function avatarHtml(p) {
-  return `<div class="avatar" style="--pc:${esc(p.color || "#8b6cff")}">${FACE}${p.parent ? LOCK : ""}</div>`;
+  const src = avatarSrc(p);
+  const img = src ? `<img src="${esc(src)}" alt="" draggable="false" onerror="this.remove()">` : "";
+  return `<div class="avatar" style="--pc:${esc(p.color || "#8b6cff")}">${FACE}${img}${p.parent ? LOCK : ""}</div>`;
 }
 async function fetchProfiles() {
   try {
@@ -1035,11 +1053,12 @@ function pinHandle(name) {
 $("#pin").addEventListener("click", (e) => { if (e.target.id === "pin") closePin(true); });
 
 // ------------------------------------------------------------ ajout / modification d'un profil
-// lignes : 0 nom, 1 compte parent (Non / Oui), 2 changer le code (parent existant), 3 boutons
-const pe = { open: false, p: null, name: "", parent: false, pin: null, row: 0, col: 0 };
+// lignes : nom, image, compte parent (Non / Oui), changer le code (parent existant), boutons
+// pe.img : undefined = image inchangée, null = retirée, { token, url, w, h } = nouvelle image choisie
+const pe = { open: false, p: null, name: "", parent: false, pin: null, img: undefined, picking: false, row: 0, col: 0 };
 function openEdit(p) {
   if (!p && pf.list.length >= pf.max) return toast(t("profileFull"));
-  Object.assign(pe, { open: true, p, name: p ? p.name : "", parent: !!(p && p.parent), pin: null, row: 0, col: 0 });
+  Object.assign(pe, { open: true, p, name: p ? p.name : "", parent: !!(p && p.parent), pin: null, img: undefined, row: 0, col: 0 });
   $("#pe-name").value = pe.name;
   $("#pedit").classList.remove("hidden");
   paintEdit();
@@ -1050,13 +1069,15 @@ function closeEdit() {
   $("#pedit").classList.add("hidden");
   stopRepeats();
 }
-const editRows = () => ["name", "parent"].concat(pe.p && pe.p.parent && pe.parent ? ["pin"] : [], ["actions"]);
+const editRows = () => ["name", "image", "parent"].concat(pe.p && pe.p.parent && pe.parent ? ["pin"] : [], ["actions"]);
 const editActions = () => ["#pe-save"].concat(pe.p && pf.list.length > 1 ? ["#pe-delete"] : [], ["#pe-cancel"]);
 function paintEdit() {
   if (!pe.open) return;
   $("#pe-title").textContent = pe.p ? t("editProfile") : t("newProfile");
   const color = pe.p ? pe.p.color : ["#8b6cff", "#22b8ff", "#2fbf71", "#ff8a3d"].find((c) => !pf.list.some((p) => p.color === c));
-  $("#pe-avatar").innerHTML = avatarHtml({ color, parent: pe.parent });
+  $("#pe-avatar").innerHTML = avatarHtml({ color, parent: pe.parent, avatarUrl: editImageUrl() });
+  $("#pe-img-clear").classList.toggle("hidden", !editImageUrl());
+  $("#pe-img-info").textContent = pe.img ? t("imageChosen", pe.img.w, pe.img.h) : "";
   $("#pe-pin-row").classList.toggle("hidden", !editRows().includes("pin"));
   $("#pe-delete").classList.toggle("hidden", !editActions().includes("#pe-delete"));
   const rows = editRows();
@@ -1068,6 +1089,7 @@ function paintEdit() {
     b.classList.toggle("focus", row === "parent" && pe.col === i);
   });
   $("#pe-pin").classList.toggle("focus", row === "pin");
+  imageButtons().forEach((b, i) => b.classList.toggle("focus", row === "image" && pe.col === i));
   const acts = editActions();
   document.querySelectorAll(".pe-actions .btn").forEach((b) => b.classList.toggle("focus", row === "actions" && acts[pe.col] === "#" + b.id));
 }
@@ -1088,11 +1110,55 @@ function setParent(on) {
 function changePin() {
   askPin({ title: t("pinNew"), confirm: true, onDone: (pin) => { pe.pin = pin; closePin(); paintEdit(); } });
 }
+// ---- image du profil : l'explorateur de fichiers du système s'ouvre (Windows : celui de FORMULA.exe,
+// Deck : ouvert par le serveur) ; la manette y tape au clavier tant qu'il est ouvert
+const editImageUrl = () => (pe.img ? pe.img.url : pe.img === null ? null : pe.p && pe.p.avatar ? avatarSrc(pe.p) : null);
+const imageButtons = () => ["#pe-img-pick"].concat(editImageUrl() ? ["#pe-img-clear"] : []).map((s) => $(s));
+let hostPick = false;          // FORMULA.exe sait ouvrir son propre sélecteur (message "pick-image")
+if (hasHost()) {
+  window.chrome.webview.addEventListener("message", (e) => {
+    const m = String(e.data || "");
+    if (m === "caps:pick-image") hostPick = true;
+    else if (m.startsWith("picked:")) hostPicked(m.slice(7));
+  });
+  window.chrome.webview.postMessage("caps?");
+}
+function imageResult(d) {
+  pe.picking = false;
+  if (d && d.ok) { pe.img = { token: d.token, url: d.url, w: d.w, h: d.h }; return paintEdit(); }
+  const err = d && d.error;
+  if (err === "cancel") return;
+  toast(t({ format: "imageBad", size: "imageBig", read: "imageRead", nodialog: "imageNoDialog" }[err] || "profileError"));
+}
+async function pickImage() {
+  if (pe.picking) return;
+  pe.picking = true;
+  if (hostPick) {
+    await fetch("/api/pad-keys", { method: "POST", body: JSON.stringify({ on: true }) }).catch(() => {});
+    window.chrome.webview.postMessage("pick-image");
+    return;
+  }
+  toast(t("imageOpening"));
+  try { imageResult(await (await fetch("/api/avatar/pick", { method: "POST", body: "{}" })).json()); }
+  catch (e) { imageResult(null); }
+}
+async function hostPicked(path) {
+  await fetch("/api/pad-keys", { method: "POST", body: JSON.stringify({ on: false }) }).catch(() => {});
+  if (!path) return imageResult({ ok: false, error: "cancel" });
+  try { imageResult(await (await fetch("/api/avatar/path", { method: "POST", body: JSON.stringify({ path }) })).json()); }
+  catch (e) { imageResult(null); }
+}
+function clearImage() {
+  pe.img = null;
+  pe.col = 0;
+  paintEdit();
+}
 async function saveEdit() {
   const name = (pe.name || "").trim() || t("profileDefault");
+  const avatar = pe.img === undefined ? undefined : pe.img ? pe.img.token : "";
   const body = pe.p
-    ? { id: pe.p.id, name, parent: pe.parent, pin: pe.pin || undefined, auth: pf.auth }
-    : { name, parent: pe.parent, pin: pe.pin || undefined, auth: pf.auth };
+    ? { id: pe.p.id, name, parent: pe.parent, pin: pe.pin || undefined, avatar, auth: pf.auth }
+    : { name, parent: pe.parent, pin: pe.pin || undefined, avatar, auth: pf.auth };
   // le premier compte parent créé devient le code de gestion
   const r = await fetch(`/api/profiles/${pe.p ? "update" : "create"}`, { method: "POST", body: JSON.stringify(body) });
   const d = await r.json();
@@ -1124,10 +1190,11 @@ function editHandle(name) {
     pe.row = (pe.row + (name === "up" ? -1 : 1) + rows.length) % rows.length;
     pe.col = rows[pe.row] === "parent" ? (pe.parent ? 1 : 0) : 0;
   } else if (name === "left" || name === "right") {
-    const n = row === "parent" ? 2 : row === "actions" ? editActions().length : 1;
+    const n = row === "parent" ? 2 : row === "actions" ? editActions().length : row === "image" ? imageButtons().length : 1;
     pe.col = Math.max(0, Math.min(n - 1, pe.col + (name === "left" ? -1 : 1)));
   } else if (name === "a") {
     if (row === "name") { if (document.activeElement === $("#pe-name")) { $("#pe-name").blur(); pe.row = 1; } else return editName(); }
+    else if (row === "image") return imageButtons()[pe.col].click();
     else if (row === "parent") return setParent(pe.col === 1);
     else if (row === "pin") return changePin();
     else return $(editActions()[pe.col]).click();
@@ -1136,7 +1203,9 @@ function editHandle(name) {
 }
 $("#pe-name").addEventListener("input", (e) => { pe.name = e.target.value; });
 $("#pe-name").addEventListener("pointerdown", (e) => { if (e.pointerType === "touch" && PLATFORM !== "Windows") { e.preventDefault(); editName(); } });
-document.querySelectorAll("#pe-parent .set-opt").forEach((b) => { b.onclick = () => { pe.row = 1; pe.col = +b.dataset.v; setParent(b.dataset.v === "1"); }; });
+document.querySelectorAll("#pe-parent .set-opt").forEach((b) => { b.onclick = () => { pe.row = editRows().indexOf("parent"); pe.col = +b.dataset.v; setParent(b.dataset.v === "1"); }; });
+$("#pe-img-pick").onclick = pickImage;
+$("#pe-img-clear").onclick = clearImage;
 $("#pe-pin").onclick = changePin;
 $("#pe-save").onclick = saveEdit;
 $("#pe-delete").onclick = deleteEdit;
