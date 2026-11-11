@@ -886,18 +886,24 @@ async function openProfiles(manage = false) {
   pf.open = true;
   pf.row = 0;
   pf.manage = false;
-  $("#profiles").classList.remove("hidden");
+  $("#profiles").classList.remove("hidden", "pf-leave");
   await fetchProfiles();
   const want = pf.cur || pf.last;
   pf.idx = Math.max(0, pf.list.findIndex((p) => p.id === want));
   renderProfiles();
   if (manage) startManage();
 }
-function closeProfiles() {
+function closeProfiles(animated = false) {
   pf.open = false;
   pf.manage = false;
-  $("#profiles").classList.add("hidden");
   stopRepeats();
+  const el = $("#profiles");
+  if (!animated) { el.classList.remove("pf-leave"); el.classList.add("hidden"); return; }
+  // transition vers la bibliothèque (voir app.css « pf-leave » / « lib-enter »)
+  el.classList.add("pf-leave");
+  document.body.classList.remove("lib-enter"); void document.body.offsetWidth; document.body.classList.add("lib-enter");
+  setTimeout(() => { if (!pf.open) el.classList.add("hidden"); el.classList.remove("pf-leave"); }, 430);
+  setTimeout(() => document.body.classList.remove("lib-enter"), 1100);
 }
 const pfTiles = () => pf.list.length + (pf.manage && pf.list.length < pf.max ? 1 : 0);
 function renderProfiles() {
@@ -949,7 +955,7 @@ async function selectProfile(p, pin) {
   closePin();
   pf.cur = d.current;
   pf.list = d.profiles;
-  closeProfiles();
+  closeProfiles(true);
   paintWho();
   state.sig = "";
   load();
