@@ -69,7 +69,7 @@ const I18N = {
       `Saves are not touched. The game goes to the FORMULA bin (${path}), which you empty yourself to free the space. ` +
       `The other device keeps its copy and will not send it back here.`,
     gmRemoved: (n) => `${n} moved to the FORMULA bin`, gmFailed: "Could not remove the game (file in use?)",
-    gmBusy: "Quit the game first", gmParents: "Parent accounts only", holdYes: "Hold 2 s",
+    gmBusy: "Quit the game first", gmTop: "Back to top", gmParents: "Parent accounts only", holdYes: "Hold 2 s",
   },
   fr: {
     refresh: "Actualiser", settings: "Paramètres", quit: "Quitter", search: "Rechercher un jeu", searchShort: "Rechercher",
@@ -124,7 +124,7 @@ const I18N = {
       `Les sauvegardes ne sont pas touchées. Le jeu va dans la corbeille FORMULA (${path}), à vider vous-même pour libérer la place. ` +
       `L'autre appareil garde sa copie et ne la renverra pas ici.`,
     gmRemoved: (n) => `${n} est dans la corbeille FORMULA`, gmFailed: "Impossible de retirer le jeu (fichier ouvert ?)",
-    gmBusy: "Quittez d'abord le jeu", gmParents: "Réservé aux comptes parents", holdYes: "Maintenir 2 s",
+    gmBusy: "Quittez d'abord le jeu", gmTop: "Remonter en haut", gmParents: "Réservé aux comptes parents", holdYes: "Maintenir 2 s",
   },
 };
 let LANG = "en";
@@ -1074,8 +1074,10 @@ function renderGames() {
   if (!gm.games.length) list.innerHTML = `<p class="jr-empty">${esc(t("gmEmpty"))}</p>`;
   else list.innerHTML = gm.games.map((g, i) => {
     const img = coverUrl(g);
-    const pct = g.size != null && total ? (100 * g.size / total) : 0;
-    const pctTxt = g.size == null ? "" : " · " + (pct >= 10 ? Math.round(pct) : pct.toFixed(1)).toString().replace(".", t("dec")) + " %";
+    // part du disque entier (pas de la liste affichée) : un jeu NES ne se voit pas, 125 Go sur 500 = un quart
+    const disk = d.diskTotal || (d.disk && d.disk.total) || 0;
+    const pct = g.size != null && disk ? Math.min(100, 100 * g.size / disk) : 0;
+    const pctTxt = g.size == null ? "" : " · " + (pct >= 10 ? Math.round(pct) : pct >= 0.1 ? pct.toFixed(1) : pct > 0 ? "< 0.1" : "0").toString().replace(".", t("dec")) + " %";
     return `<div class="gm-row${gm.removing.has(g.id) ? " removing" : ""}" data-i="${i}">
       <div class="gm-cover" style="--c:${color(g.system)}">${img ? `<img loading="lazy" src="${esc(img)}" alt="">` : ""}</div>
       <div class="gm-name"><b>${esc(g.title)}</b><span>${esc(sysShort(g.system))}</span></div>
@@ -1089,6 +1091,11 @@ function renderGames() {
     r.querySelector(".gm-trash").onclick = (e) => { e.stopPropagation(); gm.idx = +r.dataset.i; paintGames(false); gmRemove(); };
   });
   $("#gm-trash").textContent = d.trash ? t("gmTrash", fmtBytes(d.trash), d.trashPath) : d.trash === 0 ? t("gmTrashEmpty", d.trashPath) : "";
+  paintGames(false);
+}
+function gmTop() {
+  gm.idx = 0;
+  $("#gm-list").scrollTo({ top: 0, behavior: "smooth" });
   paintGames(false);
 }
 function paintGames(scroll = true) {
@@ -1138,10 +1145,12 @@ function gmHandle(name) {
     $("#gm-list").scrollTop = 0;
     return renderGames();
   }
+  if (name === "y") return gmTop();
   if (name === "a" || name === "x") return gmRemove();
   if (name === "b" || name === "select" || name === "start") return closeGames();
 }
 document.querySelector('[data-action="games"]').onclick = () => openGames();
+$("#gm-top").onclick = () => gmTop();
 $("#games").addEventListener("click", (e) => { if (e.target.id === "games" || e.target.closest(".set-close")) closeGames(); });
 
 // ------------------------------------------------------------ pavé du code (4 chiffres)
@@ -1425,6 +1434,7 @@ document.addEventListener("keydown", (e) => {
     else if (map[e.key]) over(map[e.key]);
     else if (over === profilesHandle && e.key === "y") profilesHandle("y");
     else if (over === gmHandle && (e.key === "PageUp" || e.key === "PageDown")) gmHandle(e.key === "PageUp" ? "lb" : "rb");
+    else if (over === gmHandle && (e.key === "Home" || e.key === "y")) gmHandle("y");
     else if (osk.open && e.key.length === 1) oskSet(oskGet() + (osk.target ? e.key : e.key.toLowerCase()));
     else return;
     e.preventDefault();
