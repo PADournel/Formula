@@ -148,6 +148,11 @@ Le dépôt ne contient que le code. Les données lourdes vivent ailleurs :
   est gardé (`settings.json`). `formula.py --window` reste accepté et ouvre `FORMULA.exe`.
 - Taille des jaquettes : curseur −/+ en bas à droite, LT / RT à la manette ou `-` / `+` au clavier
   (pas de 10 %, de 50 à 200 %).
+- Stick droit : saut d'une section de l'écran à l'autre (1 Bibliothèque / Récents / Favoris, 2 consoles,
+  3 Actualiser → Quitter, 4 catalogue, 5 barre du haut). Poussé au-delà de 60 % de sa course, relâché sous 35 %.
+  Angles (0° = droite, sens antihoraire) : 61-119° haut, 239-301° bas (section voisine à l'écran),
+  301-31° vers le catalogue, depuis le catalogue 119-156° vers 1, 156-208° vers 2, 208-239° vers 3 ;
+  depuis 1, 31-61° vers la barre du haut ; depuis la barre du haut, 208-239° vers 1. L3 / R3 : « Qui joue ? ».
 - Synchro : `formula.py --sync` (service systemd `formula-sync` sur le Deck, raccourci « FORMULA synchro » sous Windows).
   Réglages dans `sync.json` du dossier de données : nom de l'appareil, jeton partagé, adresses des autres appareils.
 

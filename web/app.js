@@ -405,6 +405,56 @@ function move(dx, dy) {
   focusGrid(i);
 }
 
+// ------------------------------------------------------------ stick droit : saut d'une section à l'autre
+// Sections : 1 = Bibliothèque / Récents / Favoris, 2 = consoles, 3 = Actualiser → Quitter,
+// 4 = catalogue, 5 = barre du haut. Angle : 0° = droite, sens antihoraire (90° = haut).
+// Plages : 61-119 haut, 119-156 haut-gauche, 156-208 gauche, 208-239 bas-gauche, 239-301 bas,
+// 301-31 droite, 31-61 haut-droite. La section visée dépend de la section courante.
+function stickDir(a) {
+  a = ((a % 360) + 360) % 360;
+  if (a >= 31 && a < 61) return "ur";
+  if (a >= 61 && a < 119) return "up";
+  if (a >= 119 && a < 156) return "ul";
+  if (a >= 156 && a < 208) return "left";
+  if (a >= 208 && a < 239) return "dl";
+  if (a >= 239 && a < 301) return "down";
+  return "right";
+}
+const SECTION_JUMPS = {
+  1: { up: 5, ur: 5, down: 2, right: 4 },
+  2: { up: 1, down: 3, right: 4 },
+  3: { up: 2, right: 4 },
+  4: { up: 5, ul: 1, left: 2, dl: 3 },
+  5: { down: 4, dl: 1, right: 4 },
+};
+const railSection = (e) => (e.dataset.action ? 3 : e.classList.contains("console") ? 2 : 1);
+function currentSection() {
+  if (state.zone === "top") return 5;
+  if (state.zone === "grid") return 4;
+  const it = railItems()[state.ni];
+  return it ? railSection(it) : 1;
+}
+function gotoSection(s) {
+  if (s === 5) { state.zone = "top"; state.ti = 0; return applyFocus(); }
+  if (s === 4) {
+    const n = visible().length;
+    if (n) focusGrid(Math.min(state.gi, n - 1));
+    return;
+  }
+  // colonne de gauche : l'entrée active si elle est dans la section, sinon la première
+  const items = railItems();
+  let i = items.findIndex((e) => railSection(e) === s && e.classList.contains("active"));
+  if (i < 0) i = items.findIndex((e) => railSection(e) === s);
+  if (i < 0) return;
+  state.zone = "rail";
+  state.ni = i;
+  applyFocus();
+}
+function jumpSection(angle) {
+  const to = SECTION_JUMPS[currentSection()][stickDir(angle)];
+  if (to) gotoSection(to);
+}
+
 function activate() {
   if (state.zone === "rail") { railItems()[state.ni]?.click(); return; }
   if (state.zone === "top") {
@@ -1475,7 +1525,10 @@ const PAD_ACTIONS = {
   start: [() => cycleSort()], select: [() => openSettings()],
   // clic d'un stick : « Qui joue ? » directement (Deck docké, sans tactile)
   l3: [() => openProfiles()], r3: [() => openProfiles()],
+  // stick droit poussé : saut vers la section visée (angle envoyé avec l'appui)
+  rs: [() => jumpSection(padAngle)],
 };
+let padAngle = 0;
 const repeats = {};
 function stopRepeats() { for (const k in repeats) { clearTimeout(repeats[k]); delete repeats[k]; } }
 let serverPads = 0;
@@ -1487,7 +1540,9 @@ function connectPad() {
     if (m.t === "resume") { stopRepeats(); load(); return; }
     serverPads = Math.max(serverPads, 1);
     const over = overlayHandler();
-    const act = over ? [() => over(m.b), OSK_REPEAT.has(m.b)] : PAD_ACTIONS[m.b];
+    if (m.a !== undefined) padAngle = m.a;
+    // le stick droit ne sert qu'à la bibliothèque : ignoré dans les surcouches
+    const act = over ? (m.b === "rs" ? null : [() => over(m.b), OSK_REPEAT.has(m.b)]) : PAD_ACTIONS[m.b];
     if (!act) return;
     clearTimeout(repeats[m.b]);
     delete repeats[m.b];
@@ -1524,6 +1579,10 @@ function padLoop(ts) {
     const run = (name) => () => { const over = overlayHandler(); return over ? over(name) : PAD_ACTIONS[name][0](); };
     for (const [name, on] of Object.entries(dirs)) fire(name, on, run(name), true);
     for (const [name, on] of Object.entries(act)) fire(name, on, run(name), !!PAD_ACTIONS[name][1] || (!!overlayHandler() && OSK_REPEAT.has(name)));
+    // stick droit : saut de section (poussé au-delà de 60 %, relâché sous 35 %)
+    const rx = ax(2), ry = -ax(3), rOn = Math.hypot(rx, ry) > (pad.held.rs ? 0.35 : 0.6);
+    if (rOn && !pad.held.rs && !overlayHandler()) jumpSection(Math.atan2(ry, rx) * 180 / Math.PI);
+    pad.held.rs = rOn;
   }
   requestAnimationFrame(padLoop);
 }
