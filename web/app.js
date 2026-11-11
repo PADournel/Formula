@@ -140,7 +140,9 @@ try { state.sort = +localStorage.getItem("formula.sort") || 0; state.view = loca
 
 const color = (sys) => SYS_COLORS[sys] || "#8b6cff";
 const sysShort = (id) => (state.systems.find((s) => s.id === id) || {}).short || id.toUpperCase();
-const coverUrl = (g) => (g.cover ? "/covers/" + g.cover : g.icon ? "/covers/" + g.icon : null);
+// ?v= = date of the image files: a cover replaced under the same name is not served from the browser cache
+const assetUrl = (g, name) => "/covers/" + name + (g.av ? "?v=" + g.av : "");
+const coverUrl = (g) => (g.cover ? assetUrl(g, g.cover) : g.icon ? assetUrl(g, g.icon) : null);
 
 // ------------------------------------------------------------ données
 let firstLoad = true;
@@ -293,7 +295,7 @@ function updateHero() {
   if (g.size) meta.push((g.size / 1e9).toFixed(1).replace(".", t("dec")) + " " + t("gb"));
   $("#hero-meta").innerHTML = meta.map((m) => `<span>${esc(m)}</span>`).join("");
   $("#hero-cover").style.backgroundImage = url ? `url("${url}")` : "";
-  const bg = g.hero ? "/covers/" + g.hero : url;
+  const bg = g.hero ? assetUrl(g, g.hero) : url;
   art.style.backgroundImage = bg ? `url("${bg}")` : "";
   art.classList.toggle("on", !!bg);
   $("#fav").classList.toggle("on", !!g.fav);
