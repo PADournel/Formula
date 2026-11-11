@@ -1215,7 +1215,10 @@ def fetch_covers(lib):
 #
 # Jusqu'à 4 profils (écran « Qui joue ? » au démarrage). Chaque profil a ses propres sauvegardes, rangées
 # dans kDrive (donc partagées entre le PC et le Deck) : kDrive/Saves/Profils/<profil>/<console>/…
-# La liste des profils (nom, couleur, compte parent + code) est dans kDrive/Saves/Profils/profiles.json.
+# La liste des profils (nom, couleur, compte parent + code haché) est dans kDrive/Saves/Profils/profiles.json,
+# commune au PC et au Deck, relue à chaque ouverture de « Qui joue ? » ; copie locale de secours dans
+# formula-data/profiles-shared.json (recrée la liste commune si elle manque, fusion par nom sans perte) ;
+# une copie de conflit kDrive (profiles_conflict_….json) est fusionnée puis rangée dans Profils/_conflits.
 # Avant chaque lancement, FORMULA fait pointer les dossiers de sauvegarde de l'émulateur vers le profil
 # actif : liens (jonctions sous Windows) ou chemins dans ses réglages, voir save_targets().
 # Favoris, nombre de parties et dernière partie sont propres à chaque profil et à chaque appareil
@@ -1369,20 +1372,104 @@ class Profiles:
         self.root = SAVES_ROOT / "Profils" if SAVES_ROOT.exists() else DATA / "profils"
         self.file = self.root / "profiles.json"
         self.local = DATA / "profiles"
+        # copie locale de la liste commune : secours si kDrive est absent ou si le fichier commun disparaît
+        self.mirror = DATA / "profiles-shared.json"
+        self.mirrored = None
 
-    # ---- liste partagée (kDrive)
-    def load(self):
+    # ---- liste partagée (kDrive), relue à chaque appel (donc à chaque ouverture de « Qui joue ? »)
+    @staticmethod
+    def read_list(f):
         try:
-            d = json.loads(self.file.read_text(encoding="utf-8"))
-            return d if isinstance(d.get("profiles"), list) else {"profiles": []}
+            d = json.loads(Path(f).read_text(encoding="utf-8"))
+            return d if isinstance(d, dict) and isinstance(d.get("profiles"), list) else None
         except Exception:
-            return {"profiles": []}
+            return None
+
+    @staticmethod
+    def write_atomic(f, d):
+        """Fichier temporaire puis remplacement : kDrive ne voit jamais un fichier à moitié écrit."""
+        f.parent.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_name(f".{f.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, f)
+
+    @staticmethod
+    def merge_into(d, extra):
+        """Ajoute à d les profils de extra qui n'y sont pas (même nom = même profil, d est prioritaire)."""
+        added = []
+        names = {p["name"].casefold() for p in d["profiles"]}
+        ids = {p["id"] for p in d["profiles"]}
+        for p in extra.get("profiles", []):
+            if not isinstance(p, dict) or not p.get("name") or not p.get("dir") or not p.get("id"):
+                continue
+            if p["name"].casefold() in names or len(d["profiles"]) >= MAX_PROFILES:
+                continue
+            q = dict(p)
+            if q["id"] in ids:
+                q["id"] = secrets.token_hex(4)
+            d["profiles"].append(q)
+            names.add(q["name"].casefold())
+            ids.add(q["id"])
+            added.append(q["name"])
+        return added
+
+    def load(self):
+        with self.lock:
+            d = self.read_list(self.file)
+            if d is None:
+                if self.file.exists():
+                    # illisible (kDrive en train de l'écrire…) : on lit la copie locale, sans rien réécrire
+                    return self.read_list(self.mirror) or {"profiles": []}
+                d = self.bootstrap()
+            self.merge_conflicts(d)
+            self.keep_mirror(d)
+            return d
+
+    def bootstrap(self):
+        """Pas encore de liste commune : on la crée à partir des listes locales connues (fusion sans perte)."""
+        d = {"profiles": []}
+        added = []
+        for f in (self.mirror, DATA / "profils" / "profiles.json"):
+            if f != self.file:
+                added += self.merge_into(d, self.read_list(f) or {})
+        if d["profiles"]:
+            self.write_atomic(self.file, d)
+            print("profils : liste commune créée depuis la copie locale :", added, flush=True)
+        return d
+
+    def merge_conflicts(self, d):
+        """kDrive renomme une version concurrente en profiles_conflict_….json : on reprend les profils qu'elle
+        seule contient, puis on la range dans Profils/_conflits (jamais effacée)."""
+        try:
+            conflicts = sorted(self.root.glob("profiles*conflict*.json"))
+        except OSError:
+            return
+        for c in conflicts:
+            added = self.merge_into(d, self.read_list(c) or {})
+            if added:
+                self.write_atomic(self.file, d)
+            dst = self.root / "_conflits" / c.name
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(c, dst)
+            except OSError:
+                pass
+            print("profils : copie de conflit kDrive", c.name, "fusionnée, ajoutés :", added, flush=True)
+
+    def keep_mirror(self, d):
+        text = json.dumps(d, ensure_ascii=False, sort_keys=True)
+        if text == self.mirrored:
+            return
+        try:
+            if self.read_list(self.mirror) != d:
+                self.write_atomic(self.mirror, d)
+            self.mirrored = text
+        except OSError:
+            pass
 
     def save(self, d):
-        self.root.mkdir(parents=True, exist_ok=True)
-        tmp = self.file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
-        os.replace(tmp, self.file)
+        self.write_atomic(self.file, d)
+        self.keep_mirror(d)
 
     def get(self, pid):
         return next((p for p in self.load()["profiles"] if p["id"] == pid), None)
@@ -1438,7 +1525,7 @@ class Profiles:
 
     def dir_name(self, name, d):
         base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip(" .") or "Profil"
-        used = {p["dir"].lower() for p in d["profiles"]} | {"_supprimes"}
+        used = {p["dir"].lower() for p in d["profiles"]} | {"_supprimes", "_conflits"}
         n, out = 1, base
         while out.lower() in used or (self.root / out).exists() and n < 50:
             n += 1
