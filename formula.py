@@ -2939,7 +2939,12 @@ class GameManager:
         if (missing or self.trash_size is None) and not self.busy:
             self.busy = True
             threading.Thread(target=self._compute, args=(games,), daemon=True).start()
+        try:
+            disk_total = shutil.disk_usage(ROMS if ROMS.exists() else HOME).total   # barre : part du disque
+        except OSError:
+            disk_total = 0
         return {"games": out, "pending": missing, "trash": self.trash_size, "trashPath": str(TRASH),
+                "diskTotal": disk_total,
                 "disk": EMUS.disk_usage(), "running": RUN.running()}
 
     def _compute(self, games):
