@@ -394,3 +394,21 @@ button#sync { cursor: pointer; font: inherit; font-size: 13px; }
 @keyframes splash-logo { 0% { opacity: 0; transform: scale(.97); } 30% { opacity: 1; transform: scale(1); } 75% { opacity: 1; } 100% { opacity: 0; } }
 #profiles.pf-enter .pf-wrap { animation: pf-enter .35s ease; }
 @keyframes pf-enter { from { opacity: 0; transform: scale(.985); } }
+
+/* passage « Qui joue ? » → bibliothèque : le sélecteur s'agrandit en s'effaçant, la bibliothèque arrive
+   (barre latérale qui glisse, contenu en fondu, premières jaquettes en cascade) */
+#profiles.pf-leave { animation: pf-leave .42s cubic-bezier(.4,0,.2,1) forwards; pointer-events: none; }
+@keyframes pf-leave { to { opacity: 0; transform: scale(1.06); filter: blur(6px); } }
+body.lib-enter #rail { animation: lib-rail .55s cubic-bezier(.2,.8,.2,1) both; }
+body.lib-enter #main { animation: lib-main .55s ease both; }
+body.lib-enter #grid .card { animation: lib-card .5s cubic-bezier(.2,.8,.2,1) both; animation-delay: .32s; }
+body.lib-enter #grid .card:nth-child(1) { animation-delay: .12s; }
+body.lib-enter #grid .card:nth-child(2) { animation-delay: .15s; }
+body.lib-enter #grid .card:nth-child(3) { animation-delay: .18s; }
+body.lib-enter #grid .card:nth-child(4) { animation-delay: .21s; }
+body.lib-enter #grid .card:nth-child(5) { animation-delay: .24s; }
+body.lib-enter #grid .card:nth-child(6) { animation-delay: .27s; }
+body.lib-enter #grid .card:nth-child(7) { animation-delay: .3s; }
+@keyframes lib-rail { from { opacity: 0; translate: -28px 0; } }
+@keyframes lib-main { from { opacity: 0; } }
+@keyframes lib-card { from { opacity: 0; translate: 0 22px; } }
