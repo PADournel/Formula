@@ -1841,7 +1841,7 @@ class PadReader:
     (le « A » qui valide « Quitter » dans l'émulateur ne relance pas un jeu).
     """
     KEYS = {0x130: "a", 0x131: "b", 0x133: "x", 0x134: "y", 0x136: "lb", 0x137: "rb",
-            0x13A: "select", 0x13B: "start", 0x13D: "l3", 0x13E: "r3", 0x9E: "select",
+            0x138: "lt", 0x139: "rt", 0x13A: "select", 0x13B: "start", 0x13D: "l3", 0x13E: "r3", 0x9E: "select",
             0x220: "up", 0x221: "down", 0x222: "left", 0x223: "right"}
     EVT = struct.Struct("llHHi")
 
@@ -1849,6 +1849,7 @@ class PadReader:
         self.runner = runner
         self.fds = {}            # chemin -> fd
         self.absr = {}           # fd -> {axe: (centre, demi-plage)} lus via EVIOCGABS
+        self.trig = {}           # fd -> {axe: ("lt"/"rt", min, max)} : gâchettes analogiques
         self.held = set()        # boutons logiques enfoncés (sources confondues)
         self.src = {}            # (source, bouton) -> bool, pour combiner croix et stick
         self.muted = set()       # enfoncés pendant le jeu : ignorés jusqu'au relâchement
@@ -1893,6 +1894,7 @@ class PadReader:
             if p not in want:
                 fd = self.fds.pop(p)
                 self.absr.pop(fd, None)
+                self.trig.pop(fd, None)
                 for (s, n) in [k for k in self.src if isinstance(k[0], tuple) and k[0][1] == fd]:
                     self.set_src(s, n, False)
                 os.close(fd)
@@ -1900,6 +1902,7 @@ class PadReader:
             try:
                 fd = self.fds[p] = os.open(p, os.O_RDONLY | os.O_NONBLOCK)
                 self.absr[fd] = self.axis_ranges(fd)
+                self.trig[fd] = self.trigger_axes(fd)
             except OSError:
                 pass
 
@@ -1945,6 +1948,36 @@ class PadReader:
             pass
         return out
 
+    @staticmethod
+    def trigger_axes(fd):
+        """Gâchettes analogiques (LT/RT : taille des jaquettes). Manette virtuelle de Steam et
+        xpad : ABS_Z / ABS_RZ, le stick droit étant sur ABS_RX / ABS_RY. Manette Xbox en
+        Bluetooth vue en direct (hid-generic) : ABS_BRAKE / ABS_GAS, le stick droit étant
+        alors sur ABS_Z / ABS_RZ. Un axe absent de la manette est lu avec min = max = 0."""
+        rng = {}
+        try:
+            import fcntl
+            for code in (2, 3, 5, 9, 10):
+                buf = bytearray(24)
+                try:
+                    fcntl.ioctl(fd, 0x80184540 + code, buf)  # EVIOCGABS(code)
+                except OSError:
+                    continue
+                _, lo, hi, _, _, _ = struct.unpack("6i", buf)
+                if hi > lo:
+                    rng[code] = (lo, hi)
+        except ImportError:
+            return {}
+        out = {}
+        if 3 in rng:                      # stick droit sur RX/RY : Z/RZ sont les gâchettes
+            for code, name in ((2, "lt"), (5, "rt")):
+                if code in rng:
+                    out[code] = (name,) + rng[code]
+        for code, name in ((10, "lt"), (9, "rt")):
+            if code in rng:
+                out[code] = (name,) + rng[code]
+        return out
+
     def handle(self, etype, code, value, fd=None):
         # une source par périphérique : la même manette peut apparaître deux fois
         # (en direct et via Steam), leurs états ne doivent pas s'écraser
@@ -1954,6 +1987,11 @@ class PadReader:
             neg, pos = ("left", "right") if code == 0x10 else ("up", "down")
             self.set_src(("hat", fd), neg, value < 0)
             self.set_src(("hat", fd), pos, value > 0)
+        elif etype == 3 and code in self.trig.get(fd, {}):   # gâchettes, avec hystérésis
+            name, lo, hi = self.trig[fd][code]
+            v = (value - lo) / (hi - lo)
+            cur = self.src.get((("trig", fd), name), False)
+            self.set_src(("trig", fd), name, v > 0.3 if cur else v > 0.5)
         elif etype == 3 and code in (0, 1):            # stick gauche, avec hystérésis
             mid, half = self.absr.get(fd, {}).get(code, (0, 32767))
             value = (value - mid) * 32767 / half
