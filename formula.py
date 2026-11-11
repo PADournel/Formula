@@ -1710,7 +1710,8 @@ class PadReader:
     (le « A » qui valide « Quitter » dans l'émulateur ne relance pas un jeu).
     """
     KEYS = {0x130: "a", 0x131: "b", 0x133: "x", 0x134: "y", 0x136: "lb", 0x137: "rb",
-            0x13A: "select", 0x13B: "start", 0x220: "up", 0x221: "down", 0x222: "left", 0x223: "right"}
+            0x13A: "select", 0x13B: "start", 0x13D: "l3", 0x13E: "r3", 0x9E: "select",
+            0x220: "up", 0x221: "down", 0x222: "left", 0x223: "right"}
     EVT = struct.Struct("llHHi")
 
     def __init__(self, runner):
@@ -1841,7 +1842,7 @@ class PadReader:
 
     # Windows : XInput (manette virtuelle Steam ou manette Xbox), lu même sans le focus
     XI_BUTTONS = {0x0001: "up", 0x0002: "down", 0x0004: "left", 0x0008: "right", 0x0010: "start",
-                  0x0020: "select", 0x0100: "lb", 0x0200: "rb", 0x1000: "a", 0x2000: "b", 0x4000: "x", 0x8000: "y"}
+                  0x0020: "select", 0x0040: "l3", 0x0080: "r3", 0x0100: "lb", 0x0200: "rb", 0x1000: "a", 0x2000: "b", 0x4000: "x", 0x8000: "y"}
 
     def loop_xinput(self):
         import ctypes
