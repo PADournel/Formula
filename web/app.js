@@ -360,6 +360,8 @@ function back() {
   if (document.activeElement === $("#search")) { $("#search").blur(); return; }
   if (state.query) { state.query = ""; $("#search").value = ""; render(); return; }
   if (state.zone === "grid") { state.zone = "rail"; state.ni = Math.max(0, railItems().findIndex((e) => e.classList.contains("active"))); applyFocus(); }
+  // B une seconde fois dans la colonne de gauche : « Quitter » présélectionné, A pour valider
+  else { state.ni = railItems().findIndex((e) => e.dataset.action === "quit"); applyFocus(); }
 }
 
 function setView(v) {
