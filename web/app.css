@@ -386,3 +386,11 @@ button#sync { cursor: pointer; font: inherit; font-size: 13px; }
 #confirm.hold #confirm-yes::after { content: ""; position: absolute; inset: 0; background: rgba(255,255,255,.35); transform: scaleX(0); transform-origin: left; transition: transform .15s; pointer-events: none; }
 #confirm.hold #confirm-yes.holding::after { transform: scaleX(1); transition: transform var(--hold, 2s) linear; }
 .gm-topbtn { display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 12px; border-radius: 10px; background: rgba(255,255,255,.06); border: 1px solid var(--line); font-size: 13px; font-weight: 600; color: var(--text); }
+
+/* écran de lancement (logo OnTrack Software) */
+#splash { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: #000; transition: opacity .35s ease; }
+#splash img { width: min(46vw, 620px); height: auto; opacity: 0; animation: splash-logo 1.35s ease forwards; }
+#splash.out { opacity: 0; pointer-events: none; }
+@keyframes splash-logo { 0% { opacity: 0; transform: scale(.97); } 30% { opacity: 1; transform: scale(1); } 75% { opacity: 1; } 100% { opacity: 0; } }
+#profiles.pf-enter { animation: pf-enter .35s ease; }
+@keyframes pf-enter { from { opacity: 0; transform: scale(.985); } }

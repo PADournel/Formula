@@ -1459,6 +1459,7 @@ buildPin();
 
 // une surcouche ouverte (clavier, paramètres, profils) reçoit les commandes à la place de la bibliothèque
 function overlayHandler() {
+  if (splash.on) return splashHandle;
   if (confirmBox.open) return confirmHandle;
   if (osk.open) return oskHandle;
   if (pinBox.open) return pinHandle;
@@ -1469,6 +1470,21 @@ function overlayHandler() {
   if (gm.open) return gmHandle;
   if (settings.open) return settingsHandle;
   return null;
+}
+
+// ------------------------------------------------------------ écran de lancement
+// logo OnTrack Software ~1,4 s (entrées ignorées), puis « Qui joue ? » apparaît en fondu
+const splash = { on: !!$("#splash") };
+function splashHandle() { /* rien pendant le logo */ }
+if (splash.on) {
+  setTimeout(() => {
+    const el = $("#splash");
+    const pfs = $("#profiles");
+    if (!pfs.classList.contains("hidden")) { pfs.classList.remove("pf-enter"); void pfs.offsetWidth; pfs.classList.add("pf-enter"); }
+    el.classList.add("out");
+    splash.on = false;
+    setTimeout(() => el.remove(), 400);
+  }, 1350);
 }
 
 // ------------------------------------------------------------ clavier
