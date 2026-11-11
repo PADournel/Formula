@@ -52,6 +52,9 @@ const I18N = {
     profile: "Profile", profileHint: "Each profile has its own saves, favourites and recently played games.",
     switchProfile: "Switch profile", profileFull: "4 profiles maximum", profileError: "Could not save the profile",
     needProfile: "Choose a profile first",
+    journal: "Library log", journalTitle: "Library log", journalEmpty: "No game added or removed yet.",
+    journalAdd: "Added", journalRemove: "Removed",
+    gameOpenWarn: (n) => `${n} is still open. It will be closed, unsaved progress will be lost. Switch profile?`,
   },
   fr: {
     refresh: "Actualiser", settings: "Paramètres", quit: "Quitter", search: "Rechercher un jeu", searchShort: "Rechercher",
@@ -89,6 +92,9 @@ const I18N = {
     profile: "Profil", profileHint: "Chaque profil a ses propres sauvegardes, favoris et jeux récents.",
     switchProfile: "Changer de profil", profileFull: "4 profils au maximum", profileError: "Enregistrement du profil impossible",
     needProfile: "Choisis d'abord un profil",
+    journal: "Journal", journalTitle: "Journal de la bibliothèque", journalEmpty: "Aucun jeu ajouté ni supprimé pour l'instant.",
+    journalAdd: "Ajouté", journalRemove: "Supprimé",
+    gameOpenWarn: (n) => `${n} est encore ouvert. Il sera fermé et la progression non sauvegardée sera perdue. Changer de profil ?`,
   },
 };
 let LANG = "en";
@@ -297,8 +303,12 @@ function updateHero() {
 
 // ------------------------------------------------------------ focus / navigation
 function applyFocus(scroll = true) {
-  document.querySelectorAll(".card.focus, .nav-item.focus").forEach((e) => e.classList.remove("focus"));
-  if (state.zone === "grid") {
+  document.querySelectorAll(".card.focus, .nav-item.focus, .top-item.focus").forEach((e) => e.classList.remove("focus"));
+  if (state.zone === "top") {
+    const items = topItems();
+    state.ti = Math.max(0, Math.min(state.ti || 0, items.length - 1));
+    items[state.ti]?.classList.add("focus");
+  } else if (state.zone === "grid") {
     const c = $(`.card[data-i="${state.gi}"]`);
     if (c) {
       c.classList.add("focus");
@@ -318,6 +328,8 @@ function applyFocus(scroll = true) {
 }
 function focusGrid(i, scroll = true) { state.zone = "grid"; state.gi = i; applyFocus(scroll); }
 const railItems = () => [...document.querySelectorAll("#rail .nav-item")];
+// barre du haut à la manette : recherche, tri, synchro / journal, profil
+const topItems = () => [...document.querySelectorAll("#top .top-item")].filter((e) => !e.classList.contains("hidden"));
 
 function columns() {
   const cards = document.querySelectorAll(".card");
@@ -329,6 +341,15 @@ function columns() {
 }
 
 function move(dx, dy) {
+  if (state.zone === "top") {
+    if (dx) { state.ti = Math.max(0, Math.min(topItems().length - 1, state.ti + dx)); return applyFocus(); }
+    if (dy > 0) {
+      if (visible().length) return focusGrid(Math.min(state.gi, visible().length - 1));
+      state.zone = "rail"; state.ni = Math.max(0, railItems().findIndex((e) => e.classList.contains("active")));
+      return applyFocus();
+    }
+    return;
+  }
   if (state.zone === "rail") {
     if (dx > 0) { state.zone = "grid"; return applyFocus(); }
     state.ni += dy;
@@ -338,6 +359,7 @@ function move(dx, dy) {
   if (!n) { if (dx < 0) { state.zone = "rail"; state.ni = railItems().findIndex((e) => e.classList.contains("active")); applyFocus(); } return; }
   const cols = columns();
   let i = state.gi;
+  if (dy < 0 && i < cols) { state.zone = "top"; state.ti = 0; return applyFocus(); }
   if (dx < 0 && i % cols === 0) {
     state.zone = "rail";
     state.ni = Math.max(0, railItems().findIndex((e) => e.classList.contains("active")));
@@ -353,12 +375,20 @@ function move(dx, dy) {
 
 function activate() {
   if (state.zone === "rail") { railItems()[state.ni]?.click(); return; }
+  if (state.zone === "top") {
+    const el = topItems()[state.ti];
+    if (!el) return;
+    if (el.id === "search-box") return openOsk();
+    if (el.id === "who") return openWho();
+    return el.click();
+  }
   launch();
 }
 
 function back() {
   if (document.activeElement === $("#search")) { $("#search").blur(); return; }
   if (state.query) { state.query = ""; $("#search").value = ""; render(); return; }
+  if (state.zone === "top") { move(0, 1); return; }
   if (state.zone === "grid") { state.zone = "rail"; state.ni = Math.max(0, railItems().findIndex((e) => e.classList.contains("active"))); applyFocus(); }
   // B une seconde fois dans la colonne de gauche : « Quitter » présélectionné, A pour valider
   else { state.ni = railItems().findIndex((e) => e.dataset.action === "quit"); applyFocus(); }
@@ -844,7 +874,91 @@ function profilesHandle(name) {
   paintProfiles();
 }
 $("#pf-manage").onclick = () => (pf.manage ? stopManage() : startManage());
-$("#who").onclick = () => openProfiles();
+$("#who").onclick = () => openWho();
+$("#sync").onclick = () => openJournal();
+
+// ------------------------------------------------------------ menu déroulant du profil (barre du haut)
+// Choisir un profil : code (compte parent), puis avertissement si un jeu est encore ouvert, puis changement.
+const who = { open: false, idx: 0 };
+async function openWho() {
+  if (who.open) return closeWho();
+  await fetchProfiles();
+  who.open = true;
+  who.idx = Math.max(0, pf.list.findIndex((p) => p.id === pf.cur));
+  const box = $("#whomenu");
+  box.innerHTML = "";
+  pf.list.forEach((p, i) => {
+    const b = document.createElement("button");
+    b.className = "wm-item" + (p.id === pf.cur ? " cur" : "");
+    b.innerHTML = `<span class="wm-av">${avatarHtml(p)}</span><span class="wm-name">${esc(p.name)}</span>` +
+      (p.parent ? `<span class="wm-lock">${LOCK}</span>` : "") + (p.id === pf.cur ? '<span class="wm-cur">✓</span>' : "");
+    b.onclick = (e) => { e.stopPropagation(); who.idx = i; whoPick(p); };
+    box.appendChild(b);
+  });
+  const r = $("#who").getBoundingClientRect();
+  box.style.top = r.bottom + 8 + "px";
+  box.style.right = Math.max(8, window.innerWidth - r.right) + "px";
+  box.classList.remove("hidden");
+  paintWhoMenu();
+}
+function closeWho() { who.open = false; $("#whomenu").classList.add("hidden"); stopRepeats(); }
+function paintWhoMenu() { document.querySelectorAll("#whomenu .wm-item").forEach((e, i) => e.classList.toggle("focus", i === who.idx)); }
+function whoHandle(name) {
+  const n = pf.list.length;
+  if (name === "up" || name === "down") who.idx = (who.idx + (name === "up" ? -1 : 1) + n) % n;
+  else if (name === "a") return pf.list[who.idx] && whoPick(pf.list[who.idx]);
+  else if (name === "b" || name === "select" || name === "start" || name === "left" || name === "right") return closeWho();
+  paintWhoMenu();
+}
+function whoPick(p) {
+  closeWho();
+  if (p.id === pf.cur) return;
+  const go = async (pin) => {
+    let d;
+    try { d = await (await fetch("/api/profiles/check", { method: "POST", body: JSON.stringify({ id: p.id, pin }) })).json(); }
+    catch (e) { return toast(t("profileError")); }
+    if (!d.ok) return pinBox.open ? pinError(t("pinWrong")) : toast(t("profileError"));
+    closePin();
+    if (d.running) openConfirm(t("gameOpenWarn", d.running), () => switchTo(p, pin, true));
+    else switchTo(p, pin, false);
+  };
+  if (p.parent) askPin({ title: t("pinFor", p.name), profile: p, onDone: go });
+  else go();
+}
+async function switchTo(p, pin, force) {
+  const d = await (await fetch("/api/profiles/select", { method: "POST", body: JSON.stringify({ id: p.id, pin, force }) })).json();
+  if (!d.ok) return toast(t("profileError"));
+  pf.cur = d.current;
+  pf.list = d.profiles;
+  paintWho();
+  state.sig = "";
+  load();
+}
+document.addEventListener("click", (e) => { if (who.open && !e.target.closest("#whomenu, #who")) closeWho(); });
+
+// ------------------------------------------------------------ journal de la bibliothèque (ajouts / suppressions)
+const journal = { open: false };
+async function openJournal() {
+  journal.open = true;
+  const list = $("#journal-list");
+  list.innerHTML = "";
+  $("#journal").classList.remove("hidden");
+  let entries = [];
+  try { entries = (await (await fetch("/api/journal", { cache: "no-store" })).json()).entries; } catch (e) {}
+  if (!entries.length) { list.innerHTML = `<p class="jr-empty">${esc(t("journalEmpty"))}</p>`; return; }
+  const fmt = (ts) => new Date(ts * 1000).toLocaleString(t("locale"), { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  list.innerHTML = entries.map((e) => `<div class="jr-row ${e.action}"><span class="jr-when">${esc(fmt(e.ts))}</span>` +
+    `<span class="jr-act">${e.action === "add" ? "+ " + esc(t("journalAdd")) : "− " + esc(t("journalRemove"))}</span>` +
+    `<span class="jr-title">${esc(e.title)}</span><span class="jr-sys">${esc(sysShort(e.system || ""))}</span></div>`).join("");
+  list.scrollTop = 0;
+}
+function closeJournal() { journal.open = false; $("#journal").classList.add("hidden"); stopRepeats(); }
+function journalHandle(name) {
+  const list = $("#journal-list");
+  if (name === "up" || name === "down") list.scrollBy({ top: name === "up" ? -90 : 90, behavior: "smooth" });
+  else if (["a", "b", "select", "start"].includes(name)) closeJournal();
+}
+$("#journal").addEventListener("click", (e) => { if (e.target.id === "journal" || e.target.closest(".set-close")) closeJournal(); });
 
 // ------------------------------------------------------------ pavé du code (4 chiffres)
 const pinBox = { open: false, digits: "", idx: 4, opts: null, first: null };
@@ -1032,6 +1146,8 @@ function overlayHandler() {
   if (confirmBox.open) return confirmHandle;
   if (osk.open) return oskHandle;
   if (pinBox.open) return pinHandle;
+  if (who.open) return whoHandle;
+  if (journal.open) return journalHandle;
   if (pe.open) return editHandle;
   if (pf.open) return profilesHandle;
   if (settings.open) return settingsHandle;
@@ -1163,7 +1279,7 @@ async function loadSync() {
   try {
     const st = await (await fetch("/api/sync", { cache: "no-store" })).json();
     const peers = Object.values(st.peers || {});
-    if (!st.state || !peers.length) { el.classList.add("hidden"); return; }
+    if (!st.state || !peers.length) { el.textContent = "🕘 " + t("journal"); el.classList.remove("hidden"); return; }
     let txt;
     if (st.state === "stopped") txt = t("syncStopped");
     else if (st.current) {
@@ -1176,7 +1292,7 @@ async function loadSync() {
     }
     el.textContent = txt;
     el.classList.remove("hidden");
-  } catch (e) { el.classList.add("hidden"); }
+  } catch (e) { el.textContent = "🕘 " + t("journal"); }
 }
 
 function tick() { $("#clock").textContent = new Date().toLocaleTimeString(t("locale"), { hour: "2-digit", minute: "2-digit" }); }

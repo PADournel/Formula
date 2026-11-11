@@ -49,6 +49,7 @@ else:
     DATA = HOME / ".local" / "share" / "formula"
 COVERS = DATA / "covers"
 LIB_FILE = DATA / "library.json"
+JOURNAL_FILE = DATA / "journal.json"      # jeux ajoutés / supprimés de la bibliothèque, avec la date
 PORT = int(os.environ.get("FORMULA_PORT", "47800"))
 SYNC_PORT = int(os.environ.get("FORMULA_SYNC_PORT", "47810"))
 UA = {"User-Agent": "FORMULA/1.0 (Steam Deck launcher)"}
@@ -959,6 +960,7 @@ class Library:
             return
         self.scanning = True
         try:
+            before = dict(self.games)
             seen = {}
             for sysid, p, kind in self.candidates():
                 try:
@@ -985,10 +987,36 @@ class Library:
             with self.lock:
                 self.games = seen
                 self.save()
+            if before:      # premier inventaire : rien à journaliser
+                journal_add([("add", g) for k, g in seen.items() if k not in before] +
+                            [("remove", g) for k, g in before.items() if k not in seen])
             optimize_library(self)
             fetch_covers(self)
         finally:
             self.scanning = False
+
+
+def journal_add(changes):
+    """Ajoute au journal de la bibliothèque les jeux apparus ou disparus (500 dernières entrées)."""
+    if not changes:
+        return
+    now = time.time()
+    try:
+        entries = json.loads(JOURNAL_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        entries = []
+    entries += [{"ts": now, "action": a, "title": g.get("title"), "system": g.get("system")} for a, g in changes]
+    DATA.mkdir(parents=True, exist_ok=True)
+    tmp = JOURNAL_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(entries[-500:], ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(JOURNAL_FILE)
+
+
+def journal_read():
+    try:
+        return list(reversed(json.loads(JOURNAL_FILE.read_text(encoding="utf-8"))))
+    except Exception:
+        return []
 
 
 # ---------------------------------------------------------------- jaquettes
@@ -1615,6 +1643,22 @@ class Runner:
             return self.game
         self.proc = self.game = None
         return None
+
+    def stop(self):
+        """Ferme le jeu en cours (et les processus qu'il a lancés) : changement de profil confirmé."""
+        p = self.proc
+        if not p or p.poll() is not None:
+            return
+        if IS_WIN:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True, creationflags=NO_WINDOW)
+        else:
+            subprocess.run(["pkill", "-TERM", "-P", str(p.pid)], capture_output=True)
+            p.terminate()
+        try:
+            p.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            p.kill()
+        self.running()
 
     def launch(self, lib, gid):
         if self.running():
@@ -2409,6 +2453,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, {"emulators": EMUS.listing(), "disk": EMUS.disk_usage()})
         if path == "/api/profiles":
             return self.send(200, PROFILES.public())
+        if path == "/api/journal":
+            return self.send(200, {"entries": journal_read()})
         if path.startswith("/covers/"):
             return self.static(COVERS, path[len("/covers/"):], cache=True)
         rel = path.lstrip("/") or "index.html"
@@ -2483,9 +2529,16 @@ class Handler(BaseHTTPRequestHandler):
     def profiles(self, action, body):
         """Profils : choisir (code si compte parent), ajouter, modifier, supprimer. Dès qu'un compte parent
         existe, ajouter / modifier / supprimer demande le code d'un parent (« auth »)."""
+        pid = body.get("id")
+        if action == "check":            # menu du haut : code vérifié avant l'avertissement « jeu ouvert »
+            p = PROFILES.get(pid)
+            ok = bool(p) and (not p.get("parent") or PROFILES.check_pin(p, body.get("pin")))
+            g = LIB.games.get(RUN.running() or "")
+            return self.send(200, {"ok": ok, "running": g.get("title") if g else None})
+        if action == "select" and body.get("force"):
+            RUN.stop()                   # jeu ouvert : l'utilisateur a confirmé sa fermeture
         if RUN.running():
             return self.send(409, {"ok": False, "error": "running"})
-        pid = body.get("id")
         if action == "select":
             ok, err = PROFILES.select(pid, body.get("pin"))
         elif action == "logout":
