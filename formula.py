@@ -682,6 +682,20 @@ def optimize_image(name, kind):
     return dst.name
 
 
+def asset_version(g):
+    """Date de modification la plus récente des images du jeu : ajoutée à l'URL (?v=) pour qu'une
+    jaquette remplacée sous le même nom ne reste pas affichée depuis le cache du navigateur."""
+    v = 0
+    for kind in ("cover", "icon", "hero"):
+        n = g.get(kind)
+        if n:
+            try:
+                v = max(v, int((COVERS / n).stat().st_mtime))
+            except OSError:
+                pass
+    return v or None
+
+
 def optimize_library(lib):
     """Compresse les images déjà téléchargées avant l'ajout de la compression."""
     for g in list(lib.games.values()):
@@ -2565,6 +2579,7 @@ class Handler(BaseHTTPRequestHandler):
             for g in games:
                 st = stats.get(g["id"], {})
                 g.update(plays=st.get("plays"), last_played=st.get("last_played"), fav=bool(st.get("fav")))
+                g["av"] = asset_version(g)
             systems = [{"id": k, "name": v["name"], "short": v["short"], "order": v.get("order", 99)}
                        for k, v in SYSTEMS.items()]
             return self.send(200, {"games": games, "systems": systems, "scanning": LIB.scanning,
