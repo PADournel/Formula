@@ -675,7 +675,7 @@ Emulators (§7), barre de stockage. Page en `notranslate`.
 | PS2 | 70 | 63 | collection « My Sony PlayStation 2 (USA) Collection » (64 archives) + SSX 3 + Splashdown ; Ratchet = versions de la collection (R&C 1 En/Fr/De/Es/It, Going Commando, Up Your Arsenal En/Fr/Es, Size Matters, Deadlocked). Retirés du Deck seulement à la demande : RE4, Playboy Mansion, Le Monde de Nemo, Harry Potter Azkaban, Metal Slug 4&5 ×2 |
 | PSP | 10 | 9 | Ace Combat X, Crisis Core (FR), God of War Chains of Olympus + Ghost of Sparta, Great Battles of Rome (PC seulement), Killzone Liberation, MediEvil Resurrection, Monster Hunter Freedom Unite, Les Sims 2, Warhammer 40,000 Squad Command |
 | PS Vita | 2 | 2 | Gravity Rush, Killzone Mercenary (`.pkg` + `.rif`, installés dans Vita3K) |
-| PS3 | 12 | 7 | voir §15 |
+| PS3 | 12 | 8 | voir §15 |
 | Xbox 360 | 4 | 4 | Dante's Inferno, Halo Reach, Halo 4 (disque 1 seulement), Metal Gear Rising |
 | PS4, GC, Wii, Xbox | 0 | 0 | |
 
@@ -714,12 +714,12 @@ l'utilisateur (trop grosse pour la corbeille).
 | R&C Into the Nexus | disque | OK | non (pause Ratchet) |
 | Sly Collection | disque | OK | non (refusé par l'utilisateur) |
 | Asura's Wrath | disque | OK | non (refusé, copie chiffrée supprimée) |
-| Killzone 2 (USA) | disque | **encore chiffré** : l'utilisateur re-télécharge « Killzone Trilogy (USA) » dans `G:\Downloads` (dkey déjà dans `C:\Users\iridi\Downloads`) | supprimé (chiffré) |
-| Killzone 3 (USA, Brazil) | disque | en téléchargement dans `G:\Downloads` (clé reçue, maj v1.14 à copier) | — |
+| Killzone 2 (USA, BCUS98116, tiré de la Trilogy) | disque | OK (19/11, 12,2 Go, testé : 30 i/s) | OK, copie manuelle tar|ssh le 19/11 (SHA-1 EBOOT identique)\|ssh le 19/11 (la synchro le garde en `deleted`) |
+| Killzone 3 (USA, Brazil) | disque | **non installé** : le 7z de 42 Go dans `G:\Downloads` est incomplet (en-tête à zéro, « Is not archive ») et la maj v1.14 `.pkg` est tronquée (112/124 Mo) → à retélécharger (clé dans `C:\Users\iridi\Downloads`) | — |
 
-Ne pas toucher aux téléchargements Killzone tant que l'utilisateur n'a pas dit qu'ils sont terminés (un script
-d'attente de l'ancien fil devait lancer `ps3decrypt_killzone.ps1` une fois les 7z stables 15 min ; il s'arrête avec
-son fil : à relancer si besoin). Dante's Inferno PS3 : 7z corrompu, non ajouté (l'utilisateur a la version 360).
+Script de déchiffrement Killzone : `ps3decrypt_killzone.ps1` (scratchpad du fil du 19/11 ; ignore les `.pkg` dont la
+taille d'en-tête, u64 BE à 0x18, ≠ taille du fichier). Dante's Inferno PS3 : 7z corrompu, non ajouté (l'utilisateur a la version 360).
+Deck : `systemd-inhibit --what=sleep` exige une authentification par SSH → utiliser `--what=idle`.
 Les dossiers sources PS3 de `G:\Downloads` ont été mis à la corbeille (Windows en a purgé une partie, faute de place).
 
 ### PS Vita
