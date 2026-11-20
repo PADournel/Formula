@@ -117,7 +117,7 @@ Consoles : PS2, PSP, PS Vita, PS3, PS4, NES, N64, GBA, DS, GameCube, Wii, Xbox, 
   Synchro sélective : seuls `Saves` et `Formula` en local, le reste (Streaming, Images, Solfegia, ENSEIGNEMENT…) en
   ligne seulement. Liste noire = table `sync_node(nodeId, type=1)` de `~/.config/kDrive/.sync_373831376164.db`,
   à modifier **service arrêté** (sauvegarde `~/.config/kDrive.bak-20261111`).
-- Espace : `/home` 464 Go, ~57 Go libres au 12/11.
+- Espace : `/home` 464 Go, ~57 Go libres au 12/11, 42 Go au 20/11.
 - Autres flatpaks utilisateur hors FORMULA : qBittorrent 5.3.0, VLC 3.0.24, GNOME Network Displays 0.99.
   Claude Code installé dans `~/.local/bin/claude` (pas dans le PATH).
 
@@ -715,7 +715,7 @@ l'utilisateur (trop grosse pour la corbeille).
 | Sly Collection | disque | OK | non (refusé par l'utilisateur) |
 | Asura's Wrath | disque | OK | non (refusé, copie chiffrée supprimée) |
 | Killzone 2 (USA, BCUS98116, tiré de la Trilogy) | disque | OK (19/11, 12,2 Go, testé : 30 i/s) | OK, copie manuelle tar|ssh le 19/11 (SHA-1 EBOOT identique)\|ssh le 19/11 (la synchro le garde en `deleted`) |
-| Killzone 3 (USA, Brazil) | disque | **non installé** : le 7z de 42 Go dans `G:\Downloads` est incomplet (en-tête à zéro, « Is not archive ») et la maj v1.14 `.pkg` est tronquée (112/124 Mo) → à retélécharger (clé dans `C:\Users\iridi\Downloads`) | — |
+| Killzone 3 (USA, Brazil) | disque | **non installé** : au 20/11 le 7z de 44 Go dans `G:\Downloads` est toujours incomplet (30,4 Go réellement écrits, en-tête à zéro, dernière écriture le 20/11 à 01:18, aucun client de téléchargement actif) ; la maj v1.14 `.pkg` est maintenant complète (129 533 792 octets). Extrait, le jeu fera ~40 Go alors que le Deck n'a que 42 Go libres (clé dans `C:\Users\iridi\Downloads`) | — |
 
 Script de déchiffrement Killzone : `ps3decrypt_killzone.ps1` (scratchpad du fil du 19/11 ; ignore les `.pkg` dont la
 taille d'en-tête, u64 BE à 0x18, ≠ taille du fichier). Dante's Inferno PS3 : 7z corrompu, non ajouté (l'utilisateur a la version 360).
