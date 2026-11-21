@@ -715,7 +715,7 @@ l'utilisateur (trop grosse pour la corbeille).
 | Sly Collection | disque | OK | non (refusé par l'utilisateur) |
 | Asura's Wrath | disque | OK | non (refusé, copie chiffrée supprimée) |
 | Killzone 2 (USA, BCUS98116, tiré de la Trilogy) | disque | OK (19/11, 12,2 Go, testé : 30 i/s) | OK, copie manuelle tar|ssh le 19/11 (SHA-1 EBOOT identique)\|ssh le 19/11 (la synchro le garde en `deleted`) |
-| Killzone 3 (USA, BCUS98234, maj 1.14) | disque | OK (installÃ© le 20/11, 41,3 Go ; dÃ©marrage testÃ© le 21/11 : 30 i/s) | non : 42 Go libres sur le Deck, trop juste |
+| Killzone 3 (USA, BCUS98234, maj 1.14) | disque | OK (installé le 20/11, 41,3 Go ; démarrage testé le 21/11 : 30 i/s) | non : 42 Go libres sur le Deck, trop juste |
 
 Script de déchiffrement Killzone : `ps3decrypt_killzone.ps1` (scratchpad du fil du 19/11 ; ignore les `.pkg` dont la
 taille d'en-tête, u64 BE à 0x18, ≠ taille du fichier). Dante's Inferno PS3 : 7z corrompu, non ajouté (l'utilisateur a la version 360).
@@ -752,7 +752,7 @@ Les dossiers sources PS3 de `G:\Downloads` ont été mis à la corbeille (Window
 
 ## 17. Pistes ouvertes
 
-1. Killzone 2 et Killzone 3 : déchiffrer quand l'utilisateur dit que les téléchargements sont finis, puis Deck selon la règle.
+1. Killzone 3 sur le Deck : libérer de la place d'abord (42 Go libres, jeu 41,3 Go).
 2. Copie vers le Deck de A Crack in Time et Into the Nexus : en pause, attendre l'utilisateur.
 3. MotorStorm Apocalypse : mise à jour 1.05 manquante pour appliquer la 1.06.
 4. Nestopia 2.0 sous Windows : manette et sauvegardes par profil.
